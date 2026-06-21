@@ -1,0 +1,30 @@
+OpenTake
+Copyright (C) 2026 OpenTake contributors
+
+This program is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License version 3, as published by the Free
+Software Foundation. See the LICENSE file for the full license text.
+
+-------------------------------------------------------------------------------
+Origin / attribution
+-------------------------------------------------------------------------------
+
+OpenTake is a community fork based on Palmier Pro
+(https://github.com/palmier-io/palmier-pro), Copyright (C) 2026 Palmier, Inc.,
+which is licensed under the GNU General Public License version 3.
+
+OpenTake is an independent project and is NOT affiliated with, sponsored by, or
+endorsed by Palmier, Inc. "Palmier" and "Palmier Pro" are names/trademarks of
+Palmier, Inc.; they are used here only to describe OpenTake's origin (nominative
+fair use) and are NOT used as OpenTake's own branding.
+
+-------------------------------------------------------------------------------
+Nature of the fork / summary of changes
+-------------------------------------------------------------------------------
+
+- Cross-platform rewrite (macOS / Windows / Linux) on a Rust core
+  (Tauri 2 + React), replacing the macOS-only Swift / AVFoundation implementation.
+- Media engine built on FFmpeg (decode/encode) + wgpu (compositing) + cpal (audio),
+  replacing AVFoundation's declarative composition.
+- Self-hosted / BYOK generative-AI backend. The upstream generative-AI processing
+  is closed-source and is NOT part of this fork; OpenTake provides its own.
