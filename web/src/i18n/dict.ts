@@ -100,6 +100,8 @@ const zh: Dict = {
   // Preview
   "preview.fit": "适应",
   "preview.timelineTab": "时间线",
+  "preview.noMedia": "暂无媒体",
+  "preview.unavailable": "无法预览此文件",
   "preview.jumpStart": "跳到开头",
   "preview.stepBack": "上一帧",
   "preview.playPause": "播放/暂停 (空格)",
@@ -236,6 +238,8 @@ const en: Dict = {
 
   "preview.fit": "Fit",
   "preview.timelineTab": "Timeline",
+  "preview.noMedia": "No media",
+  "preview.unavailable": "Can't preview this file",
   "preview.jumpStart": "Jump to Start",
   "preview.stepBack": "Step Back",
   "preview.playPause": "Play/Pause (Space)",

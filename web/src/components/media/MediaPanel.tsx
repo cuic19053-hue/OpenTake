@@ -30,7 +30,9 @@ import { useMediaStore } from "../../store/mediaStore";
 import { importFolderViaDialog, importFilesViaDialog } from "../../store/mediaActions";
 import { useT } from "../../i18n";
 import { formatTimecode } from "../../lib/geometry";
+import { assetUrl } from "../../lib/asset";
 import { useProjectStore } from "../../store/projectStore";
+import { addMediaToTimeline } from "../../store/editActions";
 import type { MediaItem } from "../../lib/types";
 
 /** MIME-ish type used on dataTransfer when dragging a media item to the timeline. */
@@ -375,7 +377,11 @@ function MediaGrid({ items }: { items: MediaItem[] }) {
 
 function MediaCard({ item }: { item: MediaItem }) {
   const fps = useProjectStore((s) => s.timeline.fps);
+  const setPreviewMedia = useEditorUiStore((s) => s.setPreviewMedia);
+  const previewMediaId = useEditorUiStore((s) => s.previewMediaId);
   const durationFrames = Math.round(item.duration * fps);
+  const selected = previewMediaId === item.id;
+  const thumb = assetUrl(item.path);
 
   const onDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData(MEDIA_DND_TYPE, item.id);
@@ -386,16 +392,19 @@ function MediaCard({ item }: { item: MediaItem }) {
     <div
       draggable
       onDragStart={onDragStart}
+      onClick={() => setPreviewMedia(item.id)}
+      onDoubleClick={() => void addMediaToTimeline(item)}
       title={item.name}
       style={{ display: "flex", flexDirection: "column", gap: 4, cursor: "grab" }}
     >
-      {/* Thumbnail (placeholder: type glyph until on-disk thumbnails are wired). */}
+      {/* Thumbnail: the original file decoded by the WebView (asset protocol); a
+          type glyph stands in when no resolvable path / outside Tauri. */}
       <div
         style={{
           position: "relative",
           aspectRatio: "5 / 4",
           background: "var(--bg-placeholder)",
-          border: "var(--bw-thin) solid var(--border-primary)",
+          border: `var(--bw-thin) solid ${selected ? "var(--accent-primary)" : "var(--border-primary)"}`,
           borderRadius: "var(--radius-sm)",
           display: "flex",
           alignItems: "center",
@@ -404,7 +413,22 @@ function MediaCard({ item }: { item: MediaItem }) {
           overflow: "hidden",
         }}
       >
-        <Icon icon={TYPE_ICON[item.type]} size={22} strokeWidth={1.5} />
+        {thumb && item.type === "image" ? (
+          <img
+            src={thumb}
+            alt={item.name}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : thumb && item.type === "video" ? (
+          <video
+            src={thumb}
+            muted
+            preload="metadata"
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          <Icon icon={TYPE_ICON[item.type]} size={22} strokeWidth={1.5} />
+        )}
         {item.duration > 0 && (
           <span
             className="tabular"

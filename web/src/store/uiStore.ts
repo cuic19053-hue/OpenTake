@@ -67,6 +67,10 @@ interface UiState {
   // Preview canvas
   canvasZoom: number;
   canvasOffset: { width: number; height: number };
+  /** Media asset previewed in the canvas (clicked in the media panel). `null`
+   *  shows the timeline composite. Mirrors upstream `openPreviewTab(mediaAsset)`. */
+  previewMediaId: string | null;
+  setPreviewMedia: (id: string | null) => void;
 
   // Panels
   focusedPanel: Panel | null;
@@ -142,6 +146,7 @@ export const useEditorUiStore = create<UiState>((set, get) => ({
 
   canvasZoom: 1,
   canvasOffset: { width: 0, height: 0 },
+  previewMediaId: null,
 
   focusedPanel: "timeline",
   maximizedPanel: null,
@@ -167,6 +172,7 @@ export const useEditorUiStore = create<UiState>((set, get) => ({
     set({ selectedClipIds: new Set(), isMarqueeSelecting: false }),
   selectMediaAssets: (selectedMediaAssetIds) => set({ selectedMediaAssetIds }),
   clearMediaSelection: () => set({ selectedMediaAssetIds: new Set() }),
+  setPreviewMedia: (previewMediaId) => set({ previewMediaId }),
 
   setZoomScale: (zoomScale) =>
     set({ zoomScale: Math.max(get().minZoomScale, Math.min(ZOOM.max, zoomScale)) }),
