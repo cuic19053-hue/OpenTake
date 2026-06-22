@@ -30,8 +30,17 @@
 - **#48 片段编辑收尾**:验证/修原生里时间线**片段点击选中**(`TimelineContainer` onPointerDown→hitTestClip→selectClips 已接,但实测 Delete 无效,疑选中没生效)→ Delete 删除、Cmd+K/剃刀分割可用;**片段右键菜单**(Copy/Swap Media/Save as Media/AI Edit);Inspector 三段式;Toolbar `[`/`]`/`T` 接线。
 - **#38 自动保存**(背景已完成,剩防抖 save_project(None) + 退出前 flush)。
 
+## 4b. ✅ 已完成(2026-06-22 续,均合并 main CI 双绿)
+- **#51/#52 合成预览**(PR #59):时间线标签按播放头贴 GPU 合成帧(视频+图)。
+- **#61/#62**:多素材拖入、保存/自动保存/退出 flush、预览整数帧、音频探测、播放卡顿缓解。
+- **#36 MCP 工具派发层 + Skills**(PR #66/#67):单一能力派发(25 工具接线:18 EditCommand + rename/delete + workflow/Skills)+ 默认"音频先入"内置 Skill(`crates/opentake-agent/src/plugin/builtin/audio-first/`)。
+- **#65 文字光栅化**(PR #68):`CosmicTextRasterizer`(cosmic-text+swash)把文字 clip 框渲染为预乘 RGBA,经既有 affine 1:1 合成置顶(对应上游 CATextLayer);字体/字号/颜色/对齐/背景/投影/边框全覆盖;真机视觉自检中英混排正常。**剩 Lottie 烘焙**。
+- **#36 MCP server 网络面**(PR #69,**issue 已关闭**):rmcp Streamable-HTTP `127.0.0.1:19789/mcp` + 回环 Origin/Host 守卫 + OAuth well-known;src-tauri `mcp.rs` 在 setup spawn(会话共享的 AppCore 克隆 + 内置/用户 workflow registry)。HTTP 集成测试完成 `initialize` 握手 + 远程 Origin 403。`claude mcp add --transport http opentake http://127.0.0.1:19789/mcp` 可连。
+
 ## 5. 🟦 可认领/未完成(供同事,注意文件区避免冲突)
-- **#36 [CRITICAL] MCP server 真正落地**(rmcp StreamableHttp 127.0.0.1:19789 + 工具派发 + context_signal + src-tauri spawn + 应用内 chat)。参考 `palmier-pro-upstream/.../Agent/MCP/*`。**仍连不上**。
+- **🔴 #53 [#47-C] 时间线播放引擎**(连续解码 + cpal 音频 + A/V 同步 + MJPEG 回环传输)。子项 #63(cpal)/#64(MJPEG 传输)/#65(Lottie 烘焙)。最大未完成项,需专门会话 + 真机视觉验证。
+- **#48 片段编辑收尾**:Delete/切割/片段右键菜单/Inspector 三段式/Toolbar 接线。
+- **剩余 MCP 工具 stub**:媒体读取(inspect_media/get_transcript/search_media)+ import_media 需**拓宽 CoreHandle 接 MediaEngine**(注意:CoreHandle 现仅持 AppCore,MediaEngine 在 MediaState,需架构扩展);`generate_*`/upscale 需异步 GenClient + BYOK;add_captions 需端上 whisper。
 - **#49 项目内文件夹导入 + 嵌套文件夹浏览(剪映式)**:文件夹图标/双击进入/面包屑/拖出;DTO 加 folderId+folders;import_folder 镜像目录树。用户很想要。
 - **#37 全局可复用素材库 + 收藏**(跨项目/分类/音效库/全库可见)。
 - **#39 提取音频星标 · #40 设置多分页+主页 1:1 · #34 motion dispatch · #27–30 进阶 B/C/D/E · #22–25 #12 follow-up · #35 bundle id 改名**。
@@ -41,4 +50,4 @@
 Streamable-HTTP `http://127.0.0.1:19789/mcp`(loopback+Origin 校验)。`claude mcp add --transport http opentake http://127.0.0.1:19789/mcp`;Cursor/Codex/Claude Desktop 同址。40 工具,返回附 context_signal。
 
 ## 7. 压缩后立即执行
-1. 读本文件 + `docs/PORT-1TO1-GAP.md`。2. `git -C OpenTake pull`(main)。3. 开 **#47** 分支开始时间线合成预览(composite_frame)→ 写/自审/真机测/CI 绿/合并 → 再 #48 → #38。4. 全程真机 computer-use 自测,做到能编辑再回报。
+1. 读本文件 + `docs/PORT-1TO1-GAP.md`。2. `git -C OpenTake pull`(main)。3. 盘点 `gh issue list`,挑最高价值且可完整交付的:**首选 🔴 #53 播放引擎**(大,需专门会话),或 #48 片段编辑收尾、#49/#37 库与文件夹、剩余 MCP 工具 stub。4. 每项走 分支→写→自审→`cargo fmt`+clippy+test→真机/确定性验证→`gh run watch` 双绿→`--admin` 合并。5. 新依赖先读 `~/.cargo/registry/src` 真实源码核实 API(cosmic-text/rmcp 都这么做的),别照猜测写。
