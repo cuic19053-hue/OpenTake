@@ -137,7 +137,8 @@ export type EditRequest =
   | { type: "addTexts"; entries: TextEntryReq[] }
   | { type: "link"; clipIds: string[] }
   | { type: "unlink"; clipIds: string[] }
-  | { type: "removeTracks"; trackIndexes: number[] };
+  | { type: "removeTracks"; trackIndexes: number[] }
+  | { type: "insertTrack"; kind: ClipType };
 
 export interface TextEntryReq {
   trackIndex: number;

@@ -13,6 +13,7 @@ import type {
   ClipEntryReq,
   ClipMoveReq,
   ClipPropertiesReq,
+  ClipType,
   MediaItem,
   Timeline,
   TrimEditReq,
@@ -59,6 +60,13 @@ export async function linkClips(clipIds: string[]) {
   await applyAndRefresh({ type: "link", clipIds });
 }
 
+/** Insert a new empty track of `kind` (clamped into its zone by the core). Used
+ *  by the drop flow to create a track on demand when the timeline has none
+ *  compatible. */
+export async function insertTrack(kind: ClipType) {
+  await applyAndRefresh({ type: "insertTrack", kind });
+}
+
 export async function unlinkClips(clipIds: string[]) {
   await applyAndRefresh({ type: "unlink", clipIds });
 }
@@ -103,10 +111,10 @@ function isVisual(type: MediaItem["type"]): boolean {
   return type === "video" || type === "image" || type === "text" || type === "lottie";
 }
 
-/** First existing track whose kind is compatible with `type`, else null.
- *  `AddClips` can't create tracks (validated against existing ones), so a drop
- *  targets an existing compatible track; an empty timeline silently no-ops until
- *  a track-creation command lands (follow-up). */
+/** First existing track whose kind is compatible with `type`, else null. When
+ *  none exists, the drop flow ([`addMediaToTimeline`]) creates one on demand
+ *  (`insertTrack`) — mirroring upstream `placeClip` auto-track-creation — so a
+ *  drop onto an empty timeline still produces a clip. */
 function firstCompatibleTrackIndex(timeline: Timeline, type: MediaItem["type"]): number | null {
   const wantAudio = type === "audio";
   for (let i = 0; i < timeline.tracks.length; i++) {
@@ -146,10 +154,18 @@ function entryForMedia(timeline: Timeline, item: MediaItem): ClipEntryReq | null
 }
 
 /** Add a media-library item to the timeline (drag-drop from the media panel).
- *  Resolves the target track and append position from the current mirror, then
- *  funnels through `addClips`. */
+ *  Resolves the target track and append position from the current mirror; if the
+ *  timeline has no compatible track (e.g. a brand-new empty project), creates one
+ *  on demand first (upstream `placeClip` auto-creates), then places the clip. */
 export async function addMediaToTimeline(item: MediaItem) {
-  const timeline = useProjectStore.getState().timeline;
+  let timeline = useProjectStore.getState().timeline;
+  if (firstCompatibleTrackIndex(timeline, item.type) === null) {
+    await insertTrack(item.type === "audio" ? "audio" : "video");
+    // Ensure the mirror reflects the new track before computing the entry
+    // (Tauri's timeline_changed refresh is async; force it synchronously here).
+    await forceRefresh();
+    timeline = useProjectStore.getState().timeline;
+  }
   const entry = entryForMedia(timeline, item);
   if (!entry) return;
   await addClips([entry]);
