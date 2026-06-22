@@ -1,33 +1,59 @@
 /**
  * MediaPanel (SPEC §7). Left vertical tab rail (Media/Captions/Music) + content.
- * The Media tab shows the actions/search/context toolbar and the asset grid;
- * asset data comes from a future `get_media` command (SPEC §11), so v1 renders
- * the structure + empty/drop state. Captions/Music tabs are scaffolded.
+ * The Media tab shows the actions/search/context toolbar and the asset grid.
+ * Asset data comes from the `get_media` command via `mediaStore`; importing is
+ * driven by the native dialog (folder or files, CapCut-style). Grid items are
+ * HTML5-draggable onto the timeline (see `MediaGrid` / `TimelineRegion`).
+ * Captions/Music tabs are scaffolded.
  */
 
-import { useState } from "react";
-import { Folder, Captions, Music, Plus, Sparkles, Filter, ArrowUpDown, LayoutGrid } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Folder,
+  Captions,
+  Music,
+  Plus,
+  Sparkles,
+  Filter,
+  ArrowUpDown,
+  LayoutGrid,
+  FolderOpen,
+  FileVideo,
+  FileAudio,
+  Image as ImageIcon,
+  Type as TypeIcon,
+} from "lucide-react";
 import { Icon } from "../ui/Icon";
 import { HoverButton } from "../ui/HoverButton";
 import { useEditorUiStore, type MediaTabId } from "../../store/uiStore";
+import { useMediaStore } from "../../store/mediaStore";
+import { importFolderViaDialog, importFilesViaDialog } from "../../store/mediaActions";
+import { useT } from "../../i18n";
+import { formatTimecode } from "../../lib/geometry";
+import { useProjectStore } from "../../store/projectStore";
+import type { MediaItem } from "../../lib/types";
 
-const TABS: Array<{ id: MediaTabId; icon: typeof Folder; label: string }> = [
-  { id: "media", icon: Folder, label: "Media" },
-  { id: "captions", icon: Captions, label: "Captions" },
-  { id: "music", icon: Music, label: "Music" },
+/** MIME-ish type used on dataTransfer when dragging a media item to the timeline. */
+export const MEDIA_DND_TYPE = "application/x-opentake-media";
+
+const TABS: Array<{ id: MediaTabId; icon: typeof Folder; labelKey: string }> = [
+  { id: "media", icon: Folder, labelKey: "media.tab.media" },
+  { id: "captions", icon: Captions, labelKey: "media.tab.captions" },
+  { id: "music", icon: Music, labelKey: "media.tab.music" },
 ];
 
 export function MediaPanel() {
   const mediaTab = useEditorUiStore((s) => s.mediaTab);
   const setMediaTab = useEditorUiStore((s) => s.setMediaTab);
+  const t = useT();
 
   return (
     <div style={{ display: "flex", height: "100%", width: "100%" }}>
       <TabRail active={mediaTab} onSelect={setMediaTab} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {mediaTab === "media" && <MediaTab />}
-        {mediaTab === "captions" && <Placeholder label="Captions" />}
-        {mediaTab === "music" && <Placeholder label="Music" />}
+        {mediaTab === "captions" && <Placeholder label={t("media.tab.captions")} />}
+        {mediaTab === "music" && <Placeholder label={t("media.tab.music")} />}
       </div>
     </div>
   );
@@ -35,6 +61,7 @@ export function MediaPanel() {
 
 function TabRail({ active, onSelect }: { active: MediaTabId; onSelect: (t: MediaTabId) => void }) {
   const [hovered, setHovered] = useState<MediaTabId | null>(null);
+  const t = useT();
   return (
     <div
       style={{
@@ -49,13 +76,14 @@ function TabRail({ active, onSelect }: { active: MediaTabId; onSelect: (t: Media
         padding: "var(--space-sm)",
       }}
     >
-      {TABS.map((t) => {
-        const selected = active === t.id;
+      {TABS.map((tab) => {
+        const selected = active === tab.id;
+        const label = t(tab.labelKey);
         return (
           <div
-            key={t.id}
+            key={tab.id}
             style={{ position: "relative" }}
-            onMouseEnter={() => setHovered(t.id)}
+            onMouseEnter={() => setHovered(tab.id)}
             onMouseLeave={() => setHovered(null)}
           >
             {/* Selection capsule on the left edge. */}
@@ -74,15 +102,15 @@ function TabRail({ active, onSelect }: { active: MediaTabId; onSelect: (t: Media
               />
             )}
             <HoverButton
-              title={t.label}
+              title={label}
               active={selected}
               size={26}
-              onClick={() => onSelect(t.id)}
+              onClick={() => onSelect(tab.id)}
             >
-              <Icon icon={t.icon} size={13} strokeWidth={selected ? 2.4 : 2} />
+              <Icon icon={tab.icon} size={13} strokeWidth={selected ? 2.4 : 2} />
             </HoverButton>
             {/* Hover label capsule. */}
-            {hovered === t.id && !selected && (
+            {hovered === tab.id && !selected && (
               <div
                 style={{
                   position: "absolute",
@@ -102,7 +130,7 @@ function TabRail({ active, onSelect }: { active: MediaTabId; onSelect: (t: Media
                   pointerEvents: "none",
                 }}
               >
-                {t.label}
+                {label}
               </div>
             )}
           </div>
@@ -113,6 +141,11 @@ function TabRail({ active, onSelect }: { active: MediaTabId; onSelect: (t: Media
 }
 
 function MediaTab() {
+  const t = useT();
+  const items = useMediaStore((s) => s.items);
+  const importing = useMediaStore((s) => s.importing);
+  const error = useMediaStore((s) => s.error);
+
   return (
     <>
       {/* Toolbar */}
@@ -127,11 +160,9 @@ function MediaTab() {
       >
         {/* actionsRow */}
         <div style={{ height: 28, display: "flex", alignItems: "center", gap: "var(--space-xs)" }}>
-          <HoverButton title="Import Media (⌘I)">
-            <Icon icon={Plus} size={13} />
-          </HoverButton>
+          <ImportMenu />
           <button
-            title="Generate"
+            title={t("media.generate")}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -146,14 +177,14 @@ function MediaTab() {
             }}
           >
             <Icon icon={Sparkles} size={12} />
-            Generate
+            {t("media.generate")}
           </button>
           <div style={{ flex: 1 }} />
         </div>
         {/* searchControlsRow */}
         <div style={{ height: 28, display: "flex", alignItems: "center", gap: "var(--space-xs)" }}>
           <input
-            placeholder="Search"
+            placeholder={t("media.search")}
             style={{
               flex: 1,
               height: 22,
@@ -165,13 +196,13 @@ function MediaTab() {
               padding: "0 8px",
             }}
           />
-          <HoverButton title="View mode">
+          <HoverButton title={t("media.viewMode")}>
             <Icon icon={LayoutGrid} size={13} />
           </HoverButton>
-          <HoverButton title="Sort">
+          <HoverButton title={t("media.sort")}>
             <Icon icon={ArrowUpDown} size={13} />
           </HoverButton>
-          <HoverButton title="Filter">
+          <HoverButton title={t("media.filter")}>
             <Icon icon={Filter} size={13} />
           </HoverButton>
         </div>
@@ -186,27 +217,225 @@ function MediaTab() {
             fontSize: "var(--fs-xs)",
           }}
         >
-          <span>Library</span>
-          <span>0 items</span>
+          <span>{t("media.library")}</span>
+          <span>{importing ? t("media.importing") : t("media.itemCount", { count: items.length })}</span>
         </div>
+        {error && (
+          <div style={{ color: "var(--status-error)", fontSize: "var(--fs-xs)" }}>
+            {t("media.importFailed", { error })}
+          </div>
+        )}
       </div>
 
-      {/* Grid / drop area */}
+      {items.length === 0 ? <EmptyState /> : <MediaGrid items={items} />}
+    </>
+  );
+}
+
+/** Import button with a small folder/files menu (CapCut-style folder import). */
+function ImportMenu() {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} style={{ position: "relative", display: "inline-flex" }}>
+      <HoverButton title={t("media.importHint")} active={open} onClick={() => setOpen((v) => !v)}>
+        <Icon icon={Plus} size={13} />
+      </HoverButton>
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            minWidth: 168,
+            padding: "var(--space-xs)",
+            background: "var(--bg-raised)",
+            border: "var(--bw-thin) solid var(--border-primary)",
+            borderRadius: "var(--radius-md)",
+            boxShadow: "var(--shadow-lg)",
+            zIndex: 200,
+          }}
+        >
+          <ImportMenuItem
+            icon={FolderOpen}
+            label={t("media.importFolder")}
+            onClick={() => {
+              setOpen(false);
+              void importFolderViaDialog();
+            }}
+          />
+          <ImportMenuItem
+            icon={Plus}
+            label={t("media.importFiles")}
+            onClick={() => {
+              setOpen(false);
+              void importFilesViaDialog();
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ImportMenuItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: typeof Plus;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="hover-area"
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--space-sm)",
+        height: 28,
+        padding: "0 var(--space-sm)",
+        borderRadius: "var(--radius-sm)",
+        color: "var(--text-secondary)",
+        fontSize: "var(--fs-sm)",
+        fontWeight: "var(--fw-medium)",
+        textAlign: "left",
+      }}
+    >
+      <Icon icon={icon} size={13} />
+      <span style={{ flex: 1 }}>{label}</span>
+    </button>
+  );
+}
+
+function EmptyState() {
+  const t = useT();
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "var(--text-muted)",
+        fontSize: "var(--fs-sm-md)",
+        padding: "var(--space-xl)",
+        textAlign: "center",
+      }}
+    >
+      {t("media.empty")}
+    </div>
+  );
+}
+
+const TYPE_ICON: Record<MediaItem["type"], typeof FileVideo> = {
+  video: FileVideo,
+  audio: FileAudio,
+  image: ImageIcon,
+  text: TypeIcon,
+  lottie: Sparkles,
+};
+
+function MediaGrid({ items }: { items: MediaItem[] }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        overflowY: "auto",
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))",
+        gap: "var(--space-sm)",
+        padding: "var(--space-sm)",
+        alignContent: "start",
+      }}
+    >
+      {items.map((item) => (
+        <MediaCard key={item.id} item={item} />
+      ))}
+    </div>
+  );
+}
+
+function MediaCard({ item }: { item: MediaItem }) {
+  const fps = useProjectStore((s) => s.timeline.fps);
+  const durationFrames = Math.round(item.duration * fps);
+
+  const onDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData(MEDIA_DND_TYPE, item.id);
+    e.dataTransfer.effectAllowed = "copy";
+  };
+
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      title={item.name}
+      style={{ display: "flex", flexDirection: "column", gap: 4, cursor: "grab" }}
+    >
+      {/* Thumbnail (placeholder: type glyph until on-disk thumbnails are wired). */}
       <div
         style={{
-          flex: 1,
+          position: "relative",
+          aspectRatio: "5 / 4",
+          background: "var(--bg-placeholder)",
+          border: "var(--bw-thin) solid var(--border-primary)",
+          borderRadius: "var(--radius-sm)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           color: "var(--text-muted)",
-          fontSize: "var(--fs-sm-md)",
-          padding: "var(--space-xl)",
-          textAlign: "center",
+          overflow: "hidden",
         }}
       >
-        Drop media files here, or use Import / Generate.
+        <Icon icon={TYPE_ICON[item.type]} size={22} strokeWidth={1.5} />
+        {item.duration > 0 && (
+          <span
+            className="tabular"
+            style={{
+              position: "absolute",
+              right: 4,
+              bottom: 4,
+              padding: "0 4px",
+              borderRadius: "var(--radius-xs)",
+              background: "rgba(0,0,0,0.6)",
+              color: "var(--text-secondary)",
+              fontSize: "var(--fs-micro)",
+              fontWeight: "var(--fw-medium)",
+            }}
+          >
+            {formatTimecode(durationFrames, fps)}
+          </span>
+        )}
       </div>
-    </>
+      <span
+        style={{
+          fontSize: "var(--fs-xs)",
+          color: "var(--text-secondary)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {item.name}
+      </span>
+    </div>
   );
 }
 
@@ -222,7 +451,7 @@ function Placeholder({ label }: { label: string }) {
         fontSize: "var(--fs-sm-md)",
       }}
     >
-      {label} (TODO)
+      {label}
     </div>
   );
 }

@@ -3212,12 +3212,14 @@ version = "0.1.0"
 dependencies = [
  "opentake-core",
  "opentake-domain",
+ "opentake-media",
  "opentake-ops",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tempfile",
 ]
 
 [[package]]

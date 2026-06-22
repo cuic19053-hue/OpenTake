@@ -11,6 +11,7 @@
 import type {
   EditRequest,
   EditResult,
+  MediaList,
   TimelineSnapshot,
 } from "./types";
 
@@ -95,6 +96,34 @@ export async function projectSave(path: string | null): Promise<string> {
   return path ?? "";
 }
 
+// MARK: - Media commands
+//
+// `import_folder` scans a directory for white-listed media and imports each;
+// `import_media` imports an explicit file list; `get_media` returns the current
+// catalog. All three are no-ops outside Tauri (no Rust core / no file system),
+// returning an empty catalog so the browser shell degrades gracefully.
+
+export async function importFolder(
+  path: string,
+  recursive = false,
+): Promise<MediaList> {
+  await ensureTauri();
+  if (invokeImpl) return invokeImpl<MediaList>("import_folder", { path, recursive });
+  return { items: [] };
+}
+
+export async function importMedia(paths: string[]): Promise<MediaList> {
+  await ensureTauri();
+  if (invokeImpl) return invokeImpl<MediaList>("import_media", { paths });
+  return { items: [] };
+}
+
+export async function getMedia(): Promise<MediaList> {
+  await ensureTauri();
+  if (invokeImpl) return invokeImpl<MediaList>("get_media");
+  return { items: [] };
+}
+
 // MARK: - Events
 
 /** Subscribe to `timeline_changed`. Returns an unlisten function. No-op (and a
@@ -119,6 +148,15 @@ export async function onProjectOpened(
     const p = e.payload as { path?: string; version?: number } | undefined;
     if (p) handler(p.path ?? "", p.version ?? 0);
   });
+}
+
+/** Subscribe to `media_changed` (manifest mutated by an import). The payload
+ *  carries a version; the handler just needs to know it fired so it can re-fetch
+ *  `get_media`. No-op outside Tauri. */
+export async function onMediaChanged(handler: () => void): Promise<() => void> {
+  await ensureTauri();
+  if (!listenImpl) return () => {};
+  return listenImpl("media_changed", () => handler());
 }
 
 // MARK: - Browser fallback (mirror, not authoritative)

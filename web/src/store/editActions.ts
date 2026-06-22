@@ -8,9 +8,13 @@ import * as api from "../lib/api";
 import { isTauri } from "../lib/api";
 import { forceRefresh } from "./sync";
 import { useEditorUiStore } from "./uiStore";
+import { useProjectStore } from "./projectStore";
 import type {
+  ClipEntryReq,
   ClipMoveReq,
   ClipPropertiesReq,
+  MediaItem,
+  Timeline,
   TrimEditReq,
 } from "../lib/types";
 
@@ -20,6 +24,11 @@ async function applyAndRefresh(cmd: Parameters<typeof api.editApply>[0]) {
   // no event channel, so refresh explicitly there.
   if (!isTauri && res.changed) await forceRefresh();
   return res;
+}
+
+export async function addClips(entries: ClipEntryReq[]) {
+  if (entries.length === 0) return;
+  await applyAndRefresh({ type: "addClips", entries });
 }
 
 export async function moveClips(moves: ClipMoveReq[]) {
@@ -82,4 +91,66 @@ export async function deleteSelectedClips() {
     await removeClips(ids);
     ui.clearSelection();
   }
+}
+
+// MARK: - Media -> timeline (drag and drop)
+
+/** Stills get a fixed default duration (upstream `Constants.defaultImageDuration`
+ *  ≈ 5s) since they have no intrinsic length. */
+const DEFAULT_IMAGE_SECONDS = 5;
+
+function isVisual(type: MediaItem["type"]): boolean {
+  return type === "video" || type === "image" || type === "text" || type === "lottie";
+}
+
+/** First existing track whose kind is compatible with `type`, else null.
+ *  `AddClips` can't create tracks (validated against existing ones), so a drop
+ *  targets an existing compatible track; an empty timeline silently no-ops until
+ *  a track-creation command lands (follow-up). */
+function firstCompatibleTrackIndex(timeline: Timeline, type: MediaItem["type"]): number | null {
+  const wantAudio = type === "audio";
+  for (let i = 0; i < timeline.tracks.length; i++) {
+    const trackIsAudio = timeline.tracks[i].type === "audio";
+    if (wantAudio ? trackIsAudio : !trackIsAudio && isVisual(timeline.tracks[i].type)) {
+      return i;
+    }
+  }
+  return null;
+}
+
+/** Append position on a track: just past its last clip (clamped to >= 0). */
+function appendStartFrame(timeline: Timeline, trackIndex: number): number {
+  return timeline.tracks[trackIndex].clips.reduce(
+    (max, c) => Math.max(max, c.startFrame + c.durationFrames),
+    0,
+  );
+}
+
+/** Build the clip entry for a media item dropped on the timeline, or null when
+ *  no compatible track exists. */
+function entryForMedia(timeline: Timeline, item: MediaItem): ClipEntryReq | null {
+  const trackIndex = firstCompatibleTrackIndex(timeline, item.type);
+  if (trackIndex === null) return null;
+  const seconds = item.duration > 0 ? item.duration : DEFAULT_IMAGE_SECONDS;
+  const durationFrames = Math.max(1, Math.round(seconds * timeline.fps));
+  return {
+    mediaRef: item.id,
+    mediaType: item.type,
+    sourceClipType: item.type,
+    trackIndex,
+    startFrame: appendStartFrame(timeline, trackIndex),
+    durationFrames,
+    hasAudio: item.hasAudio,
+    addLinkedAudio: item.type === "video" && item.hasAudio,
+  };
+}
+
+/** Add a media-library item to the timeline (drag-drop from the media panel).
+ *  Resolves the target track and append position from the current mirror, then
+ *  funnels through `addClips`. */
+export async function addMediaToTimeline(item: MediaItem) {
+  const timeline = useProjectStore.getState().timeline;
+  const entry = entryForMedia(timeline, item);
+  if (!entry) return;
+  await addClips([entry]);
 }

@@ -7,9 +7,13 @@
 //! §2 — "真相源在 Rust，前端持镜像").
 
 mod commands;
+mod media;
 
 use opentake_core::{AppCore, CoreEvent};
+use opentake_media::MediaEngine;
 use tauri::{Emitter, Manager};
+
+use crate::media::MediaState;
 
 /// Build and run the Tauri application. The `main.rs` binary calls this.
 pub fn run() {
@@ -27,7 +31,23 @@ pub fn run() {
                 forward_event(&handle, event);
             });
 
+            // The media engine: cache root = app cache dir, models dir = app
+            // data dir (SPEC §8.4). Fall back to the OS temp dir if either
+            // platform path is unavailable, so importing still works.
+            let cache_root = app
+                .path()
+                .app_cache_dir()
+                .unwrap_or_else(|_| std::env::temp_dir())
+                .join("media-cache");
+            let models_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir())
+                .join("models");
+            let engine = MediaEngine::new(cache_root, models_dir);
+
             app.manage(core);
+            app.manage(MediaState::new(engine));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -40,6 +60,9 @@ pub fn run() {
             commands::project_new,
             commands::project_open,
             commands::project_save,
+            media::import_folder,
+            media::import_media,
+            media::get_media,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -53,6 +76,7 @@ fn forward_event(app: &tauri::AppHandle, event: &CoreEvent) {
         CoreEvent::TimelineChanged { .. } => "timeline_changed",
         CoreEvent::ProjectOpened { .. } => "project_opened",
         CoreEvent::ProjectSaved { .. } => "project_saved",
+        CoreEvent::MediaChanged { .. } => "media_changed",
     };
     // Best-effort: a missing WebView (e.g. during teardown) must not panic the
     // emitting thread.

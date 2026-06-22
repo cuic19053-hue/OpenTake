@@ -44,7 +44,10 @@ pub mod session;
 
 // --- Assembly façade ---
 pub use crate::core::{AppCore, TimelineSnapshot};
-pub use session::EditorSession;
+pub use session::{
+    importable_clip_type, EditorSession, ProbedMedia, SUPPORTED_AUDIO_EXTENSIONS,
+    SUPPORTED_IMAGE_EXTENSIONS, SUPPORTED_VIDEO_EXTENSIONS,
+};
 
 // --- Events ---
 pub use events::{CoreEvent, EventBus, SubscriptionId};

@@ -3,7 +3,10 @@
  * column is reserved). Collapsed by default. Scaffolded.
  */
 
+import { useT } from "../../i18n";
+
 export function AgentPanel() {
+  const t = useT();
   return (
     <div
       style={{
@@ -18,7 +21,7 @@ export function AgentPanel() {
         padding: "var(--space-lg)",
       }}
     >
-      Agent panel (separate Issue)
+      {t("agent.placeholder")}
     </div>
   );
 }

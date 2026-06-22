@@ -21,6 +21,8 @@ export function useKeyboardShortcuts() {
     const handler = (e: KeyboardEvent) => {
       if (isTextEntry(e.target)) return;
       const ui = useEditorUiStore.getState();
+      // Editor-only shortcuts: ignore while the Home / Settings views are shown.
+      if (ui.view !== "editor") return;
       const mod = e.metaKey || e.ctrlKey;
       const total = (() => {
         const tl = useProjectStore.getState().timeline;

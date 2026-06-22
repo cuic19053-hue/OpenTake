@@ -10,16 +10,18 @@ import { useEffect, useRef, useState } from "react";
 import { Menu, PanelLeft, PanelRight, Columns3, Check } from "lucide-react";
 import { Icon } from "../ui/Icon";
 import { useEditorUiStore, type LayoutPreset } from "../../store/uiStore";
+import { useT } from "../../i18n";
 
-const PRESETS: Array<{ id: LayoutPreset; icon: typeof PanelLeft; label: string; key: string }> = [
-  { id: "default", icon: Columns3, label: "Default Layout", key: "⌘1" },
-  { id: "media", icon: PanelLeft, label: "Media Layout", key: "⌘2" },
-  { id: "vertical", icon: PanelRight, label: "Vertical Layout", key: "⌘3" },
+const PRESETS: Array<{ id: LayoutPreset; icon: typeof PanelLeft; labelKey: string; key: string }> = [
+  { id: "default", icon: Columns3, labelKey: "view.layoutDefault", key: "⌘1" },
+  { id: "media", icon: PanelLeft, labelKey: "view.layoutMedia", key: "⌘2" },
+  { id: "vertical", icon: PanelRight, labelKey: "view.layoutVertical", key: "⌘3" },
 ];
 
 export function ViewMenu() {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const t = useT();
 
   const layoutPreset = useEditorUiStore((s) => s.layoutPreset);
   const setLayoutPreset = useEditorUiStore((s) => s.setLayoutPreset);
@@ -48,8 +50,8 @@ export function ViewMenu() {
   return (
     <div ref={rootRef} style={{ position: "relative", display: "inline-flex" }}>
       <button
-        title="View"
-        aria-label="View menu"
+        title={t("view.menu")}
+        aria-label={t("view.menu")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
@@ -83,12 +85,12 @@ export function ViewMenu() {
             zIndex: 200,
           }}
         >
-          <MenuSectionLabel>Layout</MenuSectionLabel>
+          <MenuSectionLabel>{t("view.layout")}</MenuSectionLabel>
           {PRESETS.map((p) => (
             <MenuItem
               key={p.id}
               icon={p.icon}
-              label={p.label}
+              label={t(p.labelKey)}
               shortcut={p.key}
               checked={layoutPreset === p.id}
               onClick={() => {
@@ -100,17 +102,17 @@ export function ViewMenu() {
 
           <MenuDivider />
 
-          <MenuSectionLabel>Panels</MenuSectionLabel>
+          <MenuSectionLabel>{t("view.panels")}</MenuSectionLabel>
           <MenuItem
             icon={PanelLeft}
-            label="Media Panel"
+            label={t("view.mediaPanel")}
             shortcut="⌘0"
             checked={mediaVisible}
             onClick={toggleMedia}
           />
           <MenuItem
             icon={PanelRight}
-            label="Inspector"
+            label={t("view.inspector")}
             shortcut="⌘⌥0"
             checked={inspectorVisible}
             onClick={toggleInspector}

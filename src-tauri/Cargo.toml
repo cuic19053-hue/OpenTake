@@ -29,6 +29,10 @@ serde_json = { workspace = true }
 opentake-core = { workspace = true }
 opentake-ops = { workspace = true }
 opentake-domain = { workspace = true }
+opentake-media = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
 # this feature is used for production builds or when `devUrl` is not set

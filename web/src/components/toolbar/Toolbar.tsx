@@ -19,6 +19,7 @@ import { useEditorUiStore } from "../../store/uiStore";
 import { useProjectStore } from "../../store/projectStore";
 import { ZOOM } from "../../lib/theme";
 import * as edit from "../../store/editActions";
+import { useT } from "../../i18n";
 
 function Divider() {
   return (
@@ -65,6 +66,7 @@ function GlyphButton({
 }
 
 export function Toolbar() {
+  const t = useT();
   const toolMode = useEditorUiStore((s) => s.toolMode);
   const setToolMode = useEditorUiStore((s) => s.setToolMode);
   const zoomScale = useEditorUiStore((s) => s.zoomScale);
@@ -99,10 +101,10 @@ export function Toolbar() {
     >
       {/* Undo / Redo */}
       <div style={{ display: "flex", alignItems: "center" }}>
-        <HoverButton title="Undo (⌘Z)" disabled={!canUndo} onClick={() => edit.undo()}>
+        <HoverButton title={t("toolbar.undo")} disabled={!canUndo} onClick={() => edit.undo()}>
           <Icon icon={RotateCcw} size={13} />
         </HoverButton>
-        <HoverButton title="Redo (⇧⌘Z)" disabled={!canRedo} onClick={() => edit.redo()}>
+        <HoverButton title={t("toolbar.redo")} disabled={!canRedo} onClick={() => edit.redo()}>
           <Icon icon={RotateCw} size={13} />
         </HoverButton>
       </div>
@@ -112,14 +114,14 @@ export function Toolbar() {
       {/* Tool mode */}
       <div style={{ display: "flex", alignItems: "center" }}>
         <HoverButton
-          title="Pointer (V)"
+          title={t("toolbar.pointer")}
           active={toolMode === "pointer"}
           onClick={() => setToolMode("pointer")}
         >
           <Icon icon={MousePointer2} size={13} />
         </HoverButton>
         <HoverButton
-          title="Razor (C)"
+          title={t("toolbar.razor")}
           active={toolMode === "razor"}
           onClick={() => setToolMode("razor")}
         >
@@ -131,17 +133,17 @@ export function Toolbar() {
 
       {/* Split / Trim */}
       <div style={{ display: "flex", alignItems: "center" }}>
-        <HoverButton title="Split at Playhead (⌘K)" onClick={() => edit.splitAtPlayhead()}>
+        <HoverButton title={t("toolbar.split")} onClick={() => edit.splitAtPlayhead()}>
           <Icon icon={SplitSquareHorizontal} size={13} />
         </HoverButton>
-        <GlyphButton glyph="[" title="Trim Start to Playhead (Q)" />
-        <GlyphButton glyph="]" title="Trim End to Playhead (W)" />
+        <GlyphButton glyph="[" title={t("toolbar.trimStart")} />
+        <GlyphButton glyph="]" title={t("toolbar.trimEnd")} />
       </div>
 
       <Divider />
 
       {/* Add text */}
-      <GlyphButton glyph="T" title="Add Text" serif fontSize={17} />
+      <GlyphButton glyph="T" title={t("toolbar.addText")} serif fontSize={17} />
 
       <div style={{ flex: 1 }} />
 
@@ -159,7 +161,7 @@ export function Toolbar() {
           onChange={onSlider}
           className="zoom-slider"
           style={{ width: 100 }}
-          aria-label="Timeline zoom"
+          aria-label={t("toolbar.zoom")}
         />
         <span style={{ color: "var(--text-tertiary)", display: "inline-flex" }}>
           <Icon icon={ZoomIn} size={11} />

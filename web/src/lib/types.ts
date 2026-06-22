@@ -160,3 +160,25 @@ export interface TimelineSnapshot {
   timeline: Timeline;
   version: number;
 }
+
+// MARK: - Media catalog (mirror of src-tauri MediaItemDto / MediaListDto)
+
+/** One media-library item as returned by `get_media` / `import_*`. `type` is the
+ *  serde-renamed `kind`; `duration` is in seconds; `path` is the resolvable
+ *  source path; `thumbnail` is an on-disk thumbnail path (currently always
+ *  null — the panel renders a type placeholder). */
+export interface MediaItem {
+  id: string;
+  name: string;
+  type: ClipType;
+  duration: number;
+  width?: number | null;
+  height?: number | null;
+  hasAudio: boolean;
+  path?: string | null;
+  thumbnail?: string | null;
+}
+
+export interface MediaList {
+  items: MediaItem[];
+}

@@ -13,6 +13,7 @@ import { useProjectStore } from "../../store/projectStore";
 import { useEditorUiStore } from "../../store/uiStore";
 import * as edit from "../../store/editActions";
 import { formatTimecode } from "../../lib/geometry";
+import { useT, type TFunction } from "../../i18n";
 import type { Clip, Timeline } from "../../lib/types";
 
 function gcd(a: number, b: number): number {
@@ -20,6 +21,7 @@ function gcd(a: number, b: number): number {
 }
 
 export function Inspector() {
+  const t = useT();
   const timeline = useProjectStore((s) => s.timeline);
   const selectedClipIds = useEditorUiStore((s) => s.selectedClipIds);
   const inspectorTab = useEditorUiStore((s) => s.inspectorTab);
@@ -31,11 +33,7 @@ export function Inspector() {
   const isMarquee = selectedClips.length > 1;
   const single = selectedClips.length === 1 ? selectedClips[0] : null;
 
-  const title = single
-    ? "Inspector"
-    : isMarquee
-      ? "Inspector"
-      : "Timeline";
+  const title = single || isMarquee ? t("inspector.title") : t("inspector.timeline");
   const TitleIcon = single || isMarquee ? SlidersHorizontal : Info;
 
   return (
@@ -51,7 +49,7 @@ export function Inspector() {
 
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
         {isMarquee ? (
-          <MarqueeSummary count={selectedClips.length} />
+          <MarqueeSummary count={selectedClips.length} t={t} />
         ) : single ? (
           <ClipInspector
             clip={single}
@@ -60,9 +58,10 @@ export function Inspector() {
             hasAudio={single.mediaType === "audio"}
             keyframesOpen={keyframesPanelVisible}
             onToggleKeyframes={toggleKeyframesPanel}
+            t={t}
           />
         ) : (
-          <ProjectMetadata timeline={timeline} />
+          <ProjectMetadata timeline={timeline} t={t} />
         )}
       </div>
     </>
@@ -75,7 +74,7 @@ function collectSelected(timeline: Timeline, ids: Set<string>): Clip[] {
   return out;
 }
 
-function MarqueeSummary({ count }: { count: number }) {
+function MarqueeSummary({ count, t }: { count: number; t: TFunction }) {
   return (
     <div
       style={{
@@ -85,7 +84,7 @@ function MarqueeSummary({ count }: { count: number }) {
         fontSize: "var(--fs-sm-md)",
       }}
     >
-      {count} selected
+      {t("inspector.selectedCount", { count })}
     </div>
   );
 }
@@ -126,6 +125,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
+const TAB_LABEL_KEY: Record<"text" | "video" | "audio" | "aiEdit", string> = {
+  text: "inspector.tab.text",
+  video: "inspector.tab.video",
+  audio: "inspector.tab.audio",
+  aiEdit: "inspector.tab.aiEdit",
+};
+
 function ClipInspector({
   clip,
   tab,
@@ -133,6 +139,7 @@ function ClipInspector({
   hasAudio,
   keyframesOpen,
   onToggleKeyframes,
+  t,
 }: {
   clip: Clip;
   tab: string;
@@ -140,6 +147,7 @@ function ClipInspector({
   hasAudio: boolean;
   keyframesOpen: boolean;
   onToggleKeyframes: () => void;
+  t: TFunction;
 }) {
   // Available tabs depend on selection (SPEC §6.3).
   const tabs: Array<"text" | "video" | "audio" | "aiEdit"> = [];
@@ -162,20 +170,20 @@ function ClipInspector({
             padding: "var(--space-xs) var(--space-lg) 0",
           }}
         >
-          {tabs.map((t) => (
+          {tabs.map((tabId) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={tabId}
+              onClick={() => setTab(tabId)}
               style={{
                 paddingBottom: 4,
                 fontSize: "var(--fs-sm-md)",
-                fontWeight: activeTab === t ? "var(--fw-medium)" : "var(--fw-regular)",
-                color: activeTab === t ? "var(--text-primary)" : "var(--text-tertiary)",
+                fontWeight: activeTab === tabId ? "var(--fw-medium)" : "var(--fw-regular)",
+                color: activeTab === tabId ? "var(--text-primary)" : "var(--text-tertiary)",
                 borderBottom:
-                  activeTab === t ? "var(--bw-medium) solid var(--text-primary)" : "none",
+                  activeTab === tabId ? "var(--bw-medium) solid var(--text-primary)" : "none",
               }}
             >
-              {t === "aiEdit" ? "AI Edit" : t[0].toUpperCase() + t.slice(1)}
+              {t(TAB_LABEL_KEY[tabId])}
             </button>
           ))}
         </div>
@@ -184,8 +192,8 @@ function ClipInspector({
       <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
         {activeTab === "audio" ? (
           <section>
-            <SectionHeader label="Levels" />
-            <Row label="Volume">
+            <SectionHeader label={t("inspector.section.levels")} />
+            <Row label={t("inspector.field.volume")}>
               <ScrubbableNumberField
                 value={clip.volume}
                 min={0}
@@ -203,9 +211,9 @@ function ClipInspector({
           <>
             <section>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <SectionHeader label="Transform" />
+                <SectionHeader label={t("inspector.section.transform")} />
               </div>
-              <Row label="Scale">
+              <Row label={t("inspector.field.scale")}>
                 <ScrubbableNumberField
                   value={clip.transform.width}
                   min={0.01}
@@ -219,7 +227,7 @@ function ClipInspector({
                   }
                 />
               </Row>
-              <Row label="Rotation">
+              <Row label={t("inspector.field.rotation")}>
                 <ScrubbableNumberField
                   value={clip.transform.rotation}
                   min={-3600}
@@ -231,7 +239,7 @@ function ClipInspector({
                   onCommit={(v) => commit({ transform: { ...clip.transform, rotation: v } })}
                 />
               </Row>
-              <Row label="Opacity">
+              <Row label={t("inspector.field.opacity")}>
                 <ScrubbableNumberField
                   value={clip.opacity}
                   min={0}
@@ -246,8 +254,8 @@ function ClipInspector({
             </section>
 
             <section>
-              <SectionHeader label="Playback" />
-              <Row label="Speed">
+              <SectionHeader label={t("inspector.section.playback")} />
+              <Row label={t("inspector.field.speed")}>
                 <ScrubbableNumberField
                   value={clip.speed}
                   min={0.25}
@@ -284,27 +292,28 @@ function ClipInspector({
           }}
         >
           <Icon icon={Diamond} size={12} />
-          Keyframes
+          {t("inspector.keyframes")}
         </button>
       </div>
     </div>
   );
 }
 
-function ProjectMetadata({ timeline }: { timeline: Timeline }) {
+function ProjectMetadata({ timeline, t }: { timeline: Timeline; t: TFunction }) {
   const g = gcd(timeline.width, timeline.height) || 1;
   const total = timeline.tracks.reduce(
-    (m, t) => Math.max(m, t.clips.reduce((mm, c) => Math.max(mm, c.startFrame + c.durationFrames), 0)),
+    (m, track) =>
+      Math.max(m, track.clips.reduce((mm, c) => Math.max(mm, c.startFrame + c.durationFrames), 0)),
     0,
   );
   return (
     <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-xl)" }}>
       <section>
-        <SectionHeader label="Format" />
-        <MetaRow label="Resolution" value={`${timeline.width} × ${timeline.height}`} />
-        <MetaRow label="Frame Rate" value={`${timeline.fps} fps`} />
-        <MetaRow label="Aspect Ratio" value={`${timeline.width / g}:${timeline.height / g}`} />
-        <MetaRow label="Duration" value={formatTimecode(total, timeline.fps)} />
+        <SectionHeader label={t("inspector.section.format")} />
+        <MetaRow label={t("inspector.field.resolution")} value={`${timeline.width} × ${timeline.height}`} />
+        <MetaRow label={t("inspector.field.frameRate")} value={`${timeline.fps} fps`} />
+        <MetaRow label={t("inspector.field.aspectRatio")} value={`${timeline.width / g}:${timeline.height / g}`} />
+        <MetaRow label={t("inspector.field.duration")} value={formatTimecode(total, timeline.fps)} />
       </section>
     </div>
   );

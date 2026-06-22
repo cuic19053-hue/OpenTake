@@ -34,12 +34,61 @@
 
 use std::path::{Path, PathBuf};
 
-use opentake_domain::Timeline;
+use opentake_domain::{ClipType, MediaAsset, MediaManifest, MediaManifestEntry, Timeline};
 use opentake_ops::command::{self, EditCommand, EditResult};
 use opentake_ops::{EditorState, IdGen};
 use opentake_project::{GenerationLog, Project};
 
 use crate::error::{CoreError, Result};
+
+/// The subset of probed media facts the session needs to materialize an asset.
+///
+/// `opentake-core` deliberately does not depend on `opentake-media` (the
+/// assembly layer stays decoupled from the heavy ffmpeg/ML stack — see
+/// [`crate::deps`]). The caller that owns the media engine (`src-tauri`) probes
+/// the file and hands these plain values in, so [`EditorSession::import_media_file`]
+/// stays unit-testable without invoking ffprobe. Mirrors the facts
+/// `MediaAsset.loadMetadata` reads upstream (duration / dimensions / fps /
+/// audio presence).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProbedMedia {
+    /// Duration in seconds (0 for stills).
+    pub duration_secs: f64,
+    /// Rotation-corrected pixel width, when known.
+    pub width: Option<i32>,
+    /// Rotation-corrected pixel height, when known.
+    pub height: Option<i32>,
+    /// Frames per second for video, when known.
+    pub fps: Option<f64>,
+    /// Whether the file carries an audio track.
+    pub has_audio: bool,
+}
+
+/// File extensions the importer accepts, grouped by the [`ClipType`] they map to.
+/// Mirrors upstream `ClipType(fileExtension:)` minus the Lottie special-case
+/// (Lottie needs a content sniff the bare extension can't provide, so JSON files
+/// are not auto-imported here).
+pub const SUPPORTED_VIDEO_EXTENSIONS: [&str; 3] = ["mov", "mp4", "m4v"];
+/// Accepted audio extensions.
+pub const SUPPORTED_AUDIO_EXTENSIONS: [&str; 4] = ["mp3", "wav", "aac", "m4a"];
+/// Accepted image extensions.
+pub const SUPPORTED_IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "tiff", "heic", "webp"];
+
+/// The [`ClipType`] for `path` if its (lowercased) extension is on the import
+/// white-list, else `None`. JSON/Lottie are intentionally excluded (see
+/// [`SUPPORTED_VIDEO_EXTENSIONS`]).
+pub fn importable_clip_type(path: &Path) -> Option<ClipType> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    if SUPPORTED_VIDEO_EXTENSIONS.contains(&ext.as_str()) {
+        Some(ClipType::Video)
+    } else if SUPPORTED_AUDIO_EXTENSIONS.contains(&ext.as_str()) {
+        Some(ClipType::Audio)
+    } else if SUPPORTED_IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+        Some(ClipType::Image)
+    } else {
+        None
+    }
+}
 
 /// The open document plus its project-level metadata.
 pub struct EditorSession {
@@ -130,6 +179,71 @@ impl EditorSession {
     /// models them as such), so the session needs no separate undo plumbing.
     pub fn apply(&mut self, command: EditCommand, ids: &dyn IdGen) -> Result<EditResult> {
         Ok(command::apply(&mut self.state, command, ids)?)
+    }
+
+    /// Import a local media file as an external reference and append it to the
+    /// manifest. Returns the freshly created [`MediaManifestEntry`].
+    ///
+    /// Mirrors upstream `addMediaAsset(from:)` + `importMediaAsset` +
+    /// `finalizeImportedAsset`: build a [`MediaAsset`] from the file
+    /// ([`MediaSource::External`] — the file is referenced in place, not copied
+    /// into the bundle), fold in the probed metadata, then derive its persisted
+    /// entry and push it onto [`MediaManifest::entries`]. The clip layer only
+    /// ever stores the asset id (`media_ref`); the manifest is the bridge from id
+    /// to file.
+    ///
+    /// `id` is the caller-minted asset id, `name` its display name (upstream uses
+    /// the file stem). Errors with [`CoreError::Unsupported`]`("media")` when the
+    /// extension is not on the import white-list — a recoverable value the
+    /// command layer maps to a clear message, never a panic.
+    ///
+    /// Manifest mutation here is intentionally *outside* the undo transaction:
+    /// upstream appends imports to the manifest directly (only folder moves, which
+    /// go through [`Self::apply`], are undoable). Importing does not bump the
+    /// timeline version.
+    pub fn import_media_file(
+        &mut self,
+        path: impl AsRef<Path>,
+        id: impl Into<String>,
+        name: impl Into<String>,
+        probe: &ProbedMedia,
+    ) -> Result<MediaManifestEntry> {
+        let path = path.as_ref();
+        let kind = importable_clip_type(path).ok_or(CoreError::Unsupported("media"))?;
+
+        let mut asset = MediaAsset::new(id, path, kind, name, probe.duration_secs);
+        asset.source_width = probe.width;
+        asset.source_height = probe.height;
+        asset.source_fps = probe.fps;
+        // Video defaults to having audio (MediaAsset::new); refine from the probe.
+        // Non-video never carries a video-track-linked audio flag upstream.
+        asset.has_audio = match kind {
+            ClipType::Audio => true,
+            ClipType::Video => probe.has_audio,
+            _ => false,
+        };
+
+        // `now = 0`: a freshly imported local file has no cached remote URL, so
+        // the freshness clock is irrelevant to the produced entry.
+        let entry = asset.to_manifest_entry(self.project_dir.as_deref(), 0.0);
+        self.state.manifest.entries.push(entry.clone());
+        Ok(entry)
+    }
+
+    /// A clone of the current media manifest (read-only mirror for the media
+    /// panel). The manifest is the persisted id→file catalog.
+    pub fn media(&self) -> MediaManifest {
+        self.state.manifest.clone()
+    }
+
+    /// The manifest entry for `asset_id`, if present (lookup without cloning the
+    /// whole manifest).
+    pub fn media_entry(&self, asset_id: &str) -> Option<&MediaManifestEntry> {
+        self.state
+            .manifest
+            .entries
+            .iter()
+            .find(|e| e.id == asset_id)
     }
 
     /// The current monotonic document version (sourced from `EditorState`, not a
@@ -275,5 +389,102 @@ mod tests {
         assert!(redo.changed);
         assert_eq!(s.version(), 3);
         assert_eq!(s.timeline().tracks[0].clips.len(), 1);
+    }
+
+    // --- Media import ---
+
+    #[test]
+    fn importable_clip_type_covers_whitelist_and_rejects_others() {
+        assert_eq!(
+            importable_clip_type(Path::new("/x/a.MP4")),
+            Some(ClipType::Video)
+        );
+        assert_eq!(
+            importable_clip_type(Path::new("/x/song.m4a")),
+            Some(ClipType::Audio)
+        );
+        assert_eq!(
+            importable_clip_type(Path::new("/x/pic.JPG")),
+            Some(ClipType::Image)
+        );
+        // JSON/Lottie is intentionally not auto-importable here.
+        assert_eq!(importable_clip_type(Path::new("/x/anim.json")), None);
+        assert_eq!(importable_clip_type(Path::new("/x/notes.txt")), None);
+        assert_eq!(importable_clip_type(Path::new("/x/noext")), None);
+    }
+
+    #[test]
+    fn import_video_builds_external_entry_with_probe_metadata() {
+        let mut s = EditorSession::new_project();
+        let probe = ProbedMedia {
+            duration_secs: 12.5,
+            width: Some(1920),
+            height: Some(1080),
+            fps: Some(30.0),
+            has_audio: true,
+        };
+        let entry = s
+            .import_media_file("/abs/clip.mp4", "asset-1", "clip", &probe)
+            .unwrap();
+
+        assert_eq!(entry.id, "asset-1");
+        assert_eq!(entry.name, "clip");
+        assert_eq!(entry.kind, ClipType::Video);
+        assert_eq!(entry.duration, 12.5);
+        assert_eq!(entry.source_width, Some(1920));
+        assert_eq!(entry.source_height, Some(1080));
+        assert_eq!(entry.source_fps, Some(30.0));
+        assert_eq!(entry.has_audio, Some(true));
+        // Unsaved project + absolute path outside any bundle -> External ref.
+        assert_eq!(
+            entry.source,
+            opentake_domain::MediaSource::External {
+                absolute_path: "/abs/clip.mp4".into()
+            }
+        );
+
+        // Appended to the manifest, queryable by id; importing leaves the
+        // timeline version untouched.
+        assert_eq!(s.media().entries.len(), 1);
+        assert_eq!(
+            s.media_entry("asset-1").map(|e| e.id.as_str()),
+            Some("asset-1")
+        );
+        assert_eq!(s.version(), 0);
+    }
+
+    #[test]
+    fn import_image_has_no_audio_regardless_of_probe() {
+        let mut s = EditorSession::new_project();
+        let probe = ProbedMedia {
+            duration_secs: 0.0,
+            width: Some(800),
+            height: Some(600),
+            fps: None,
+            has_audio: true, // probe lies; an image never has audio
+        };
+        let entry = s
+            .import_media_file("/abs/pic.png", "img-1", "pic", &probe)
+            .unwrap();
+        assert_eq!(entry.kind, ClipType::Image);
+        assert_eq!(entry.has_audio, Some(false));
+    }
+
+    #[test]
+    fn import_audio_marks_has_audio_true() {
+        let mut s = EditorSession::new_project();
+        let entry = s
+            .import_media_file("/abs/song.mp3", "aud-1", "song", &ProbedMedia::default())
+            .unwrap();
+        assert_eq!(entry.kind, ClipType::Audio);
+        assert_eq!(entry.has_audio, Some(true));
+    }
+
+    #[test]
+    fn import_unsupported_extension_errors_without_touching_manifest() {
+        let mut s = EditorSession::new_project();
+        let err = s.import_media_file("/abs/doc.txt", "x", "doc", &ProbedMedia::default());
+        assert!(matches!(err, Err(CoreError::Unsupported("media"))));
+        assert!(s.media().entries.is_empty());
     }
 }

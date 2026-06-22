@@ -30,14 +30,14 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use opentake_domain::Timeline;
+use opentake_domain::{MediaManifest, MediaManifestEntry, Timeline};
 use opentake_ops::command::{EditCommand, EditResult};
 use opentake_ops::IdGen;
 
 use crate::deps::CoreDeps;
 use crate::error::Result;
 use crate::events::{CoreEvent, EventBus, SubscriptionId};
-use crate::session::EditorSession;
+use crate::session::{EditorSession, ProbedMedia};
 
 /// Thread-safe id generator used as the core's default.
 ///
@@ -256,6 +256,40 @@ impl AppCore {
         Ok(written)
     }
 
+    // MARK: - Media import
+
+    /// A snapshot of the current media manifest (`get_media`). The catalog the
+    /// media panel renders; reads are infallible.
+    pub fn media(&self) -> MediaManifest {
+        self.lock().media()
+    }
+
+    /// Import a local media file as an external reference, minting the asset id
+    /// from the core's id generator. Returns the new [`MediaManifestEntry`] and,
+    /// **after releasing the lock**, emits [`CoreEvent::MediaChanged`] so
+    /// observers refresh their media mirror.
+    ///
+    /// The caller (which owns the media engine) supplies the probed metadata; see
+    /// [`ProbedMedia`] and [`EditorSession::import_media_file`]. Errors with
+    /// [`crate::CoreError::Unsupported`]`("media")` for files whose extension is
+    /// not on the import white-list.
+    pub fn import_media_file(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        name: impl Into<String>,
+        probe: &ProbedMedia,
+    ) -> Result<MediaManifestEntry> {
+        let id = self.ids.next_id();
+        let (entry, count) = {
+            let mut session = self.lock();
+            let entry = session.import_media_file(path, id, name, probe)?;
+            let count = session.media().entries.len();
+            (entry, count)
+        };
+        self.events.emit(&CoreEvent::MediaChanged { count });
+        Ok(entry)
+    }
+
     // MARK: - Internal
 
     /// Lock the session, recovering from a poisoned mutex by taking the inner
@@ -458,5 +492,45 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_media_mints_id_appends_and_emits_media_changed() {
+        let core = AppCore::new();
+        let seen: Arc<Mutex<Vec<CoreEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        core.subscribe(move |ev| sink.lock().unwrap().push(ev.clone()));
+
+        let probe = ProbedMedia {
+            duration_secs: 3.0,
+            width: Some(640),
+            height: Some(480),
+            fps: Some(24.0),
+            has_audio: false,
+        };
+        let entry = core.import_media_file("/abs/a.mp4", "a", &probe).unwrap();
+
+        // Id came from the core generator (default "id-" prefix).
+        assert_eq!(entry.id, "id-1");
+        assert_eq!(core.media().entries.len(), 1);
+        // Importing does not move the timeline version.
+        assert_eq!(core.version(), 0);
+        assert_eq!(
+            seen.lock().unwrap().clone(),
+            vec![CoreEvent::MediaChanged { count: 1 }]
+        );
+    }
+
+    #[test]
+    fn import_media_unsupported_errors_and_emits_nothing() {
+        let core = AppCore::new();
+        let seen: Arc<Mutex<Vec<CoreEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        core.subscribe(move |ev| sink.lock().unwrap().push(ev.clone()));
+
+        let err = core.import_media_file("/abs/a.txt", "a", &ProbedMedia::default());
+        assert!(err.is_err());
+        assert!(core.media().entries.is_empty());
+        assert!(seen.lock().unwrap().is_empty());
     }
 }

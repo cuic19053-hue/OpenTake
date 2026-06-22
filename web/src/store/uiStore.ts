@@ -8,6 +8,9 @@ import { create } from "zustand";
 import { ZOOM } from "../lib/theme";
 
 export type Panel = "agent" | "media" | "preview" | "inspector" | "timeline";
+/** Top-level app view (SPEC: 启动先进主页). The editor is one of three views;
+ *  switching is in-app (no router) so editor state survives navigation. */
+export type AppView = "home" | "editor" | "settings";
 export type ToolMode = "pointer" | "razor";
 export type LayoutPreset = "default" | "media" | "vertical";
 export type MediaTabId = "media" | "captions" | "music";
@@ -36,6 +39,10 @@ function persist(key: string, value: string) {
 }
 
 interface UiState {
+  // Top-level navigation
+  view: AppView;
+  setView: (view: AppView) => void;
+
   // Playback / playhead
   currentFrame: number;
   activeFrame: number;
@@ -112,6 +119,9 @@ interface UiState {
 }
 
 export const useEditorUiStore = create<UiState>((set, get) => ({
+  view: "home",
+  setView: (view) => set({ view }),
+
   currentFrame: 0,
   activeFrame: 0,
   isPlaying: false,

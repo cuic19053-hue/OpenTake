@@ -8,6 +8,7 @@
 import { useCallback, useRef } from "react";
 import { Eye, EyeOff, Volume2, VolumeX, Link, Unlink } from "lucide-react";
 import { Icon } from "../ui/Icon";
+import { useT } from "../../i18n";
 import { LAYOUT, TRACK_SIZE } from "../../lib/theme";
 import { trackColor } from "../../lib/clip";
 import { trackDisplayLabel, firstAudioIndex } from "../../lib/zones";
@@ -118,6 +119,7 @@ interface RowProps {
 }
 
 function TrackHeaderRow(p: RowProps) {
+  const t = useT();
   const dragRef = useRef<{ startY: number } | null>(null);
 
   const onPointerDown = useCallback(
@@ -179,16 +181,16 @@ function TrackHeaderRow(p: RowProps) {
       {/* Toggles. */}
       <div style={{ display: "flex", alignItems: "center", gap: 2, paddingRight: 4 }}>
         {p.isAudio ? (
-          <span title="Mute" style={{ color: iconColor(!p.muted), display: "inline-flex" }}>
+          <span title={t("timeline.mute")} style={{ color: iconColor(!p.muted), display: "inline-flex" }}>
             <Icon icon={p.muted ? VolumeX : Volume2} size={11} />
           </span>
         ) : (
-          <span title="Hide" style={{ color: iconColor(!p.hidden), display: "inline-flex" }}>
+          <span title={t("timeline.hide")} style={{ color: iconColor(!p.hidden), display: "inline-flex" }}>
             <Icon icon={p.hidden ? EyeOff : Eye} size={11} />
           </span>
         )}
         <span
-          title="Sync lock"
+          title={t("timeline.syncLock")}
           style={{ color: iconColor(p.syncLocked), display: "inline-flex" }}
         >
           <Icon icon={p.syncLocked ? Link : Unlink} size={11} />

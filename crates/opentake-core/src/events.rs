@@ -58,6 +58,14 @@ pub enum CoreEvent {
         /// The bundle path that was written.
         path: String,
     },
+
+    /// The media manifest changed (one or more assets were imported). Observers
+    /// re-fetch the catalog via `get_media` to refresh the media panel. Carries
+    /// the manifest entry count after the change for cheap staleness checks.
+    MediaChanged {
+        /// Number of manifest entries after the change.
+        count: usize,
+    },
 }
 
 /// An opaque handle for a registered subscriber. Pass it to
@@ -175,5 +183,11 @@ mod tests {
     fn core_event_serializes_with_kind_tag() {
         let json = serde_json::to_string(&CoreEvent::TimelineChanged { version: 7 }).unwrap();
         assert_eq!(json, r#"{"kind":"timeline_changed","version":7}"#);
+    }
+
+    #[test]
+    fn media_changed_serializes_with_kind_tag() {
+        let json = serde_json::to_string(&CoreEvent::MediaChanged { count: 3 }).unwrap();
+        assert_eq!(json, r#"{"kind":"media_changed","count":3}"#);
     }
 }

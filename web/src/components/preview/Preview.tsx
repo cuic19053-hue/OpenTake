@@ -21,8 +21,10 @@ import { Icon } from "../ui/Icon";
 import { useProjectStore } from "../../store/projectStore";
 import { useEditorUiStore } from "../../store/uiStore";
 import { formatTimecode, totalFrames } from "../../lib/geometry";
+import { useT } from "../../i18n";
 
 export function Preview() {
+  const t = useT();
   const timeline = useProjectStore((s) => s.timeline);
   const activeFrame = useEditorUiStore((s) => s.activeFrame);
   const setCurrentFrame = useEditorUiStore((s) => s.setCurrentFrame);
@@ -116,24 +118,24 @@ export function Preview() {
         </span>
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-md)" }}>
-          <HoverButton title="Jump to Start" onClick={() => seek(0)}>
+          <HoverButton title={t("preview.jumpStart")} onClick={() => seek(0)}>
             <Icon icon={SkipBack} size={13} />
           </HoverButton>
-          <HoverButton title="Step Back" onClick={() => seek(activeFrame - 1)}>
+          <HoverButton title={t("preview.stepBack")} onClick={() => seek(activeFrame - 1)}>
             <Icon icon={StepBack} size={13} />
           </HoverButton>
-          <HoverButton title="Play/Pause (Space)" onClick={() => setPlaying(!isPlaying)}>
+          <HoverButton title={t("preview.playPause")} onClick={() => setPlaying(!isPlaying)}>
             <Icon icon={isPlaying ? Pause : Play} size={14} />
           </HoverButton>
-          <HoverButton title="Step Forward" onClick={() => seek(activeFrame + 1)}>
+          <HoverButton title={t("preview.stepForward")} onClick={() => seek(activeFrame + 1)}>
             <Icon icon={StepForward} size={13} />
           </HoverButton>
-          <HoverButton title="Jump to End" onClick={() => seek(total)}>
+          <HoverButton title={t("preview.jumpEnd")} onClick={() => seek(total)}>
             <Icon icon={SkipForward} size={13} />
           </HoverButton>
         </div>
         <div style={{ flex: 1 }} />
-        <HoverButton title="Capture Frame to Media">
+        <HoverButton title={t("preview.captureFrame")}>
           <Icon icon={Camera} size={13} />
         </HoverButton>
         <ProjectSettingsBadges fps={timeline.fps} width={timeline.width} height={timeline.height} />
@@ -143,6 +145,7 @@ export function Preview() {
 }
 
 function PreviewTabs() {
+  const t = useT();
   // v1: a single non-closable "Timeline" tab (SPEC §8.3 always present).
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)" }}>
@@ -155,7 +158,7 @@ function PreviewTabs() {
           borderBottom: "var(--bw-medium) solid var(--accent-primary)",
         }}
       >
-        Timeline
+        {t("preview.timelineTab")}
       </div>
     </div>
   );
@@ -254,6 +257,7 @@ function Badge({ children }: { children: React.ReactNode }) {
 }
 
 function ProjectSettingsBadges({ fps, width, height }: { fps: number; width: number; height: number }) {
+  const t = useT();
   const g = gcd(width, height) || 1;
   const quality = height >= 2160 ? "4K" : height >= 1440 ? "2K" : height >= 1080 ? "FHD" : "HD";
   return (
@@ -261,7 +265,7 @@ function ProjectSettingsBadges({ fps, width, height }: { fps: number; width: num
       <Badge>{`${width / g}:${height / g}`}</Badge>
       <Badge>{fps}</Badge>
       <Badge>{quality}</Badge>
-      <Badge>Fit</Badge>
+      <Badge>{t("preview.fit")}</Badge>
     </div>
   );
 }
