@@ -35,3 +35,14 @@ PRIMARY-CN/
 ## 工作方式
 - 上游每个模块由独立子 Agent 拆解,产出结构化规格 + 核心算法逻辑,供 Rust 侧忠实复刻。
 - 全部子 Agent 以最高思考(max effort)运行。
+
+## bundle identifier 改名(com.opentake.app → com.opentake.desktop)
+
+- **背景**:`tauri build` 警告 `com.opentake.app` 以 `.app` 结尾,与 macOS 应用包扩展名冲突(issue #35)。
+- **决策**:bundle identifier 改为 `com.opentake.desktop`。候选 `io.opentake.app` 被否决,因仍以 `.app` 结尾无法消除警告,且与 `opentake-gen` 钥匙串 SERVICE(`io.opentake.app`)重名会混淆独立概念。
+- **钥匙串 SERVICE 不动**:`crates/opentake-gen/src/keys.rs` 的 `SERVICE = "io.opentake.app"` 是独立于 bundle id 的概念,保持不变以避免已存 API Key 丢失。
+- **破坏性影响(macOS)**:bundle id 是 App 身份唯一标识,改后 macOS 视为全新应用:
+  - 已授予的 computer-use / 辅助功能权限需重新授予。
+  - 旧偏好(`~/Library/Preferences/com.opentake.app.plist`)不自动迁移。
+  - 钥匙串 API Key 不受影响(SERVICE 未变)。
+- **非阻塞**:issue 本身标注 non-blocking,bundle 一直能成功生成;本次仅消除警告并固化身份。
