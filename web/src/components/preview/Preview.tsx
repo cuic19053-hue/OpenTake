@@ -20,8 +20,11 @@ import { HoverButton } from "../ui/HoverButton";
 import { Icon } from "../ui/Icon";
 import { useProjectStore } from "../../store/projectStore";
 import { useEditorUiStore } from "../../store/uiStore";
+import { useMediaStore } from "../../store/mediaStore";
 import { formatTimecode, totalFrames } from "../../lib/geometry";
+import { assetUrl } from "../../lib/asset";
 import { useT } from "../../i18n";
+import type { MediaItem } from "../../lib/types";
 
 export function Preview() {
   const t = useT();
@@ -31,6 +34,10 @@ export function Preview() {
   const isPlaying = useEditorUiStore((s) => s.isPlaying);
   const setPlaying = useEditorUiStore((s) => s.setPlaying);
   const canvasZoom = useEditorUiStore((s) => s.canvasZoom);
+  const previewMediaId = useEditorUiStore((s) => s.previewMediaId);
+  const previewItem = useMediaStore((s) =>
+    previewMediaId ? s.items.find((m) => m.id === previewMediaId) ?? null : null,
+  );
 
   const total = totalFrames(timeline);
   const aspect = timeline.width / timeline.height;
@@ -63,7 +70,7 @@ export function Preview() {
   return (
     <>
       <PanelHeaderBar>
-        <PreviewTabs />
+        <PreviewTabs item={previewItem} />
       </PanelHeaderBar>
 
       {/* Canvas stage */}
@@ -90,10 +97,15 @@ export function Preview() {
             justifyContent: "center",
             color: "var(--text-muted)",
             fontSize: "var(--fs-xs)",
+            overflow: "hidden",
           }}
         >
-          {/* Rust composite frame target. */}
-          {timeline.tracks.length === 0 ? "No media" : `${timeline.width}×${timeline.height}`}
+          {previewItem ? (
+            <MediaPreview item={previewItem} />
+          ) : (
+            // Rust composite frame target (timeline preview — wired in a later batch).
+            <span>{timeline.tracks.length === 0 ? t("preview.noMedia") : `${timeline.width}×${timeline.height}`}</span>
+          )}
         </div>
       </div>
 
@@ -144,22 +156,69 @@ export function Preview() {
   );
 }
 
-function PreviewTabs() {
+/** Renders a single media asset straight from disk via the asset protocol —
+ *  `<video>`/`<audio>` with native controls, `<img>` for stills. The pragmatic
+ *  preview path (WebView decodes the original file); timeline composite preview
+ *  is a later batch. */
+function MediaPreview({ item }: { item: MediaItem }) {
   const t = useT();
-  // v1: a single non-closable "Timeline" tab (SPEC §8.3 always present).
+  const url = assetUrl(item.path);
+  const box: React.CSSProperties = { width: "100%", height: "100%", objectFit: "contain" };
+
+  if (!url) {
+    return <span>{t("preview.unavailable")}</span>;
+  }
+  if (item.type === "image") {
+    return <img src={url} alt={item.name} style={box} />;
+  }
+  if (item.type === "audio") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--space-md)", padding: "var(--space-xl)" }}>
+        <Icon icon={Play} size={28} />
+        <audio src={url} controls style={{ width: "80%" }} />
+      </div>
+    );
+  }
+  // video (and any other visual): native player.
+  return <video src={url} controls style={box} />;
+}
+
+function PreviewTabs({ item }: { item: MediaItem | null }) {
+  const t = useT();
+  const setPreviewMedia = useEditorUiStore((s) => s.setPreviewMedia);
+  const onTimeline = item === null;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)" }}>
-      <div
+    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-md)" }}>
+      <button
+        type="button"
+        onClick={() => setPreviewMedia(null)}
         style={{
           paddingBottom: 4,
           fontSize: "var(--fs-sm-md)",
           fontWeight: "var(--fw-semibold)",
-          color: "var(--text-primary)",
-          borderBottom: "var(--bw-medium) solid var(--accent-primary)",
+          color: onTimeline ? "var(--text-primary)" : "var(--text-tertiary)",
+          borderBottom: onTimeline ? "var(--bw-medium) solid var(--accent-primary)" : "none",
         }}
       >
         {t("preview.timelineTab")}
-      </div>
+      </button>
+      {item && (
+        <div
+          style={{
+            paddingBottom: 4,
+            maxWidth: 180,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontSize: "var(--fs-sm-md)",
+            fontWeight: "var(--fw-semibold)",
+            color: "var(--text-primary)",
+            borderBottom: "var(--bw-medium) solid var(--accent-primary)",
+          }}
+        >
+          {item.name}
+        </div>
+      )}
     </div>
   );
 }
