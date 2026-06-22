@@ -264,6 +264,13 @@ impl AppCore {
         self.lock().media()
     }
 
+    /// The open project's `.opentake` bundle directory, or `None` for an unsaved
+    /// project. Needed to resolve [`MediaSource::Project`](opentake_domain::MediaSource)
+    /// relative paths to on-disk files (preview/composite read the original media).
+    pub fn project_dir(&self) -> Option<PathBuf> {
+        self.lock().project_dir().map(|p| p.to_path_buf())
+    }
+
     /// Import a local media file as an external reference, minting the asset id
     /// from the core's id generator. Returns the new [`MediaManifestEntry`] and,
     /// **after releasing the lock**, emits [`CoreEvent::MediaChanged`] so

@@ -207,15 +207,22 @@ pub fn composite_frame(
     // Snapshot the session under its own lock, released before any GPU work.
     let timeline = core.get_timeline().timeline;
     let manifest = core.media();
+    // A saved project copies its media into the bundle and rewrites entries to
+    // `MediaSource::Project { relative_path }` (see opentake-project archive), so
+    // resolving paths must join the bundle dir — skipping them left a reopened
+    // project's preview black.
+    let project_dir = core.project_dir();
 
-    // Project the manifest into render-side lookups (external assets only; a
-    // project-relative asset needs the bundle base, not produced by importing).
+    // Project the manifest into render-side lookups.
     let mut sizes: HashMap<String, (u32, u32)> = HashMap::new();
     let mut media: HashMap<String, MediaInfo> = HashMap::new();
     for entry in &manifest.entries {
         let path = match &entry.source {
             MediaSource::External { absolute_path } => PathBuf::from(absolute_path),
-            MediaSource::Project { .. } => continue,
+            MediaSource::Project { relative_path } => match &project_dir {
+                Some(base) => base.join(relative_path),
+                None => continue,
+            },
         };
         if let (Some(w), Some(h)) = (entry.source_width, entry.source_height) {
             if w > 0 && h > 0 {

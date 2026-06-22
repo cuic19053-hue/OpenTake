@@ -29,6 +29,9 @@ use crate::media::MediaState;
 /// keeps running in the background. Dock-reopen ([`RunEvent::Reopen`]) shows it
 /// again. `Cmd+Q` still exits (it raises `ExitRequested`, not prevented here).
 pub fn run() {
+    // Pin ffmpeg/ffprobe before anything decodes (see `resolve_media_tools`).
+    resolve_media_tools();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
@@ -118,6 +121,43 @@ pub fn run() {
                 }
             }
         });
+}
+
+/// Locate `ffmpeg` / `ffprobe` and export `OPENTAKE_FFMPEG` / `OPENTAKE_FFPROBE`
+/// (the override `opentake-media`'s `ff` module reads) so decoding works in a
+/// packaged app.
+///
+/// A macOS `.app` launched from Finder/Dock inherits the minimal **launchd**
+/// `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`), which omits Homebrew
+/// (`/opt/homebrew/bin`) and `/usr/local/bin`. A PATH-only `ffmpeg` lookup then
+/// fails and every frame decode returns nothing — the timeline preview stays
+/// black even though the code is correct. Pin an absolute path from the common
+/// install locations instead. (Bundling the binaries via Tauri `externalBin` is
+/// the cross-machine follow-up; this unblocks any host that has ffmpeg on disk.)
+fn resolve_media_tools() {
+    for (key, bin) in [
+        ("OPENTAKE_FFMPEG", "ffmpeg"),
+        ("OPENTAKE_FFPROBE", "ffprobe"),
+    ] {
+        if std::env::var_os(key).is_some() {
+            continue; // an explicit override always wins
+        }
+        let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(path) = std::env::var_os("PATH") {
+            dirs.extend(std::env::split_paths(&path));
+        }
+        for p in [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/opt/local/bin",
+            "/usr/bin",
+        ] {
+            dirs.push(std::path::PathBuf::from(p));
+        }
+        if let Some(found) = dirs.into_iter().map(|d| d.join(bin)).find(|c| c.is_file()) {
+            std::env::set_var(key, found);
+        }
+    }
 }
 
 /// Map a [`CoreEvent`] onto a front-end Tauri event. The event name matches the
