@@ -1,0 +1,88 @@
+/**
+ * Timeline content painter (SPEC §5.9). Draws track backgrounds, the video/audio
+ * region divider, range fills, and all clips (with move/trim ghosts) into the
+ * scrolling document canvas. The ruler and playhead are separate sticky overlays
+ * (SPEC §5.11), painted by the container.
+ */
+
+import { BG, BORDER, TEXT } from "../../lib/theme";
+import { clipRect, trackDisplayHeight, trackY } from "../../lib/geometry";
+import { drawClip } from "./clipRenderer";
+import type { Timeline } from "../../lib/types";
+
+export interface PaintState {
+  timeline: Timeline;
+  pixelsPerFrame: number;
+  trackHeights: Record<string, number>;
+  selectedClipIds: Set<string>;
+  /** Device pixel ratio for crisp lines. */
+  dpr: number;
+  /** Document content size (CSS px). */
+  width: number;
+  height: number;
+  /** Index of the first audio track, or -1, for the region divider. */
+  firstAudioIndex: number;
+  /** Scroll offset into the document (CSS px). */
+  scrollLeft: number;
+  scrollTop: number;
+  /** Visible viewport size (CSS px). */
+  viewWidth: number;
+  viewHeight: number;
+}
+
+export function paintTimeline(ctx: CanvasRenderingContext2D, s: PaintState) {
+  const { timeline, pixelsPerFrame, trackHeights, width, dpr, scrollLeft, scrollTop } = s;
+
+  // Document-space drawing: translate by -scroll so the visible window paints
+  // into the canvas (SPEC §5.1 — content scrolls under a fixed viewport).
+  ctx.setTransform(dpr, 0, 0, dpr, -scrollLeft * dpr, -scrollTop * dpr);
+  ctx.clearRect(scrollLeft, scrollTop, s.viewWidth, s.viewHeight);
+
+  const visRight = scrollLeft + s.viewWidth;
+
+  // 1. Track backgrounds (drawTrackBackgrounds: surface + 1px borders). Fill the
+  // visible window width so the surface reaches the right edge.
+  for (let i = 0; i < timeline.tracks.length; i++) {
+    const ty = trackY(timeline, i, trackHeights);
+    const th = trackDisplayHeight(timeline.tracks[i], trackHeights);
+    ctx.fillStyle = BG.surface;
+    ctx.fillRect(scrollLeft, ty, s.viewWidth, th);
+    ctx.fillStyle = BORDER.primary;
+    ctx.fillRect(scrollLeft, ty, s.viewWidth, 1);
+    ctx.fillRect(scrollLeft, ty + th - 1, s.viewWidth, 1);
+  }
+
+  // Video/audio region divider: 2px divider at first audio track top.
+  if (s.firstAudioIndex > 0) {
+    const dy = trackY(timeline, s.firstAudioIndex, trackHeights);
+    ctx.fillStyle = BORDER.divider;
+    ctx.fillRect(scrollLeft, dy, s.viewWidth, 2);
+  }
+
+  // 3. Clips (skip those fully outside the visible window).
+  for (let ti = 0; ti < timeline.tracks.length; ti++) {
+    const track = timeline.tracks[ti];
+    for (const clip of track.clips) {
+      const rect = clipRect(timeline, ti, clip, pixelsPerFrame, trackHeights);
+      if (rect.x + rect.width < scrollLeft || rect.x > visRight) continue;
+      drawClip(ctx, clip, rect, {
+        isSelected: s.selectedClipIds.has(clip.id),
+        fps: timeline.fps,
+      });
+    }
+  }
+
+  // Empty-state hint when no tracks (centered in the visible window).
+  if (timeline.tracks.length === 0) {
+    ctx.fillStyle = TEXT.muted;
+    ctx.font = '13px -apple-system, system-ui, sans-serif';
+    ctx.textAlign = "center";
+    ctx.fillText(
+      "Drop media here to start",
+      scrollLeft + s.viewWidth / 2,
+      scrollTop + s.viewHeight / 2,
+    );
+    ctx.textAlign = "left";
+  }
+  void width;
+}

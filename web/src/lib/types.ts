@@ -1,0 +1,162 @@
+/**
+ * TypeScript mirror of the Rust domain model (the read-only timeline mirror).
+ * Field names match the Rust serde `camelCase` output verbatim
+ * (`opentake-domain`), which is also the `project.json` schema. See
+ * docs/specs/frontend-UI-1to1-SPEC.md §12.
+ */
+
+export type ClipType = "video" | "audio" | "image" | "text" | "lottie";
+export type Interpolation = "linear" | "hold" | "smooth";
+
+export interface Timeline {
+  fps: number; // default 30
+  width: number; // default 1920
+  height: number; // default 1080
+  settingsConfigured: boolean;
+  tracks: Track[];
+}
+
+export interface Track {
+  id: string;
+  type: ClipType; // serde rename = "type"
+  muted: boolean;
+  hidden: boolean;
+  syncLocked: boolean; // default true
+  clips: Clip[];
+  // displayHeight is NOT in JSON — it's a UI-only field (default 50, 32..200).
+}
+
+export interface Keyframe<V> {
+  frame: number; // clip-relative offset in storage
+  value: V;
+  interpolationOut: Interpolation; // default smooth
+}
+export interface KeyframeTrack<V> {
+  keyframes: Keyframe<V>[];
+}
+/** Position (x,y) and scale (w,h) two-component keyframe value. */
+export interface AnimPair {
+  a: number;
+  b: number;
+}
+
+export interface Transform {
+  centerX: number; // default 0.5
+  centerY: number; // default 0.5
+  width: number; // default 1
+  height: number; // default 1
+  rotation: number; // degrees, clockwise positive
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+}
+
+export interface Crop {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+export interface Clip {
+  id: string;
+  mediaRef: string;
+  mediaType: ClipType;
+  sourceClipType: ClipType;
+  startFrame: number;
+  durationFrames: number;
+  trimStartFrame: number;
+  trimEndFrame: number;
+  speed: number;
+  volume: number;
+  fadeInFrames: number;
+  fadeOutFrames: number;
+  fadeInInterpolation: Interpolation;
+  fadeOutInterpolation: Interpolation;
+  opacity: number;
+  transform: Transform;
+  crop: Crop;
+  linkGroupId?: string;
+  captionGroupId?: string;
+  textContent?: string;
+  textStyle?: unknown;
+  opacityTrack?: KeyframeTrack<number>;
+  positionTrack?: KeyframeTrack<AnimPair>;
+  scaleTrack?: KeyframeTrack<AnimPair>;
+  rotationTrack?: KeyframeTrack<number>;
+  cropTrack?: KeyframeTrack<Crop>;
+  volumeTrack?: KeyframeTrack<number>;
+}
+
+// MARK: - Command DTOs (mirror src-tauri EditRequest)
+
+export interface ClipEntryReq {
+  mediaRef: string;
+  mediaType: ClipType;
+  sourceClipType: ClipType;
+  trackIndex: number;
+  startFrame: number;
+  durationFrames: number;
+  trimStartFrame?: number;
+  trimEndFrame?: number;
+  hasAudio?: boolean;
+  addLinkedAudio?: boolean;
+}
+
+export interface ClipMoveReq {
+  clipId: string;
+  toTrack: number;
+  toFrame: number;
+}
+
+export interface TrimEditReq {
+  clipId: string;
+  trimStartFrame: number;
+  trimEndFrame: number;
+}
+
+export interface ClipPropertiesReq {
+  durationFrames?: number;
+  trimStartFrame?: number;
+  trimEndFrame?: number;
+  speed?: number;
+  volume?: number;
+  opacity?: number;
+  transform?: Transform;
+  textContent?: string;
+}
+
+/** The discriminated union mapped to Rust `EditRequest` (tag = "type"). */
+export type EditRequest =
+  | { type: "addClips"; entries: ClipEntryReq[] }
+  | { type: "insertClips"; trackIndex: number; atFrame: number; entries: ClipEntryReq[] }
+  | { type: "moveClips"; moves: ClipMoveReq[] }
+  | { type: "removeClips"; clipIds: string[] }
+  | { type: "splitClip"; clipId: string; atFrame: number }
+  | { type: "trimClips"; edits: TrimEditReq[] }
+  | { type: "setClipProperties"; clipIds: string[]; properties: ClipPropertiesReq }
+  | { type: "addTexts"; entries: TextEntryReq[] }
+  | { type: "link"; clipIds: string[] }
+  | { type: "unlink"; clipIds: string[] }
+  | { type: "removeTracks"; trackIndexes: number[] };
+
+export interface TextEntryReq {
+  trackIndex: number;
+  startFrame: number;
+  durationFrames: number;
+  content: string;
+  textStyle: unknown;
+  transform: Transform;
+}
+
+export interface EditResult {
+  changed: boolean;
+  actionName: string;
+  affectedClipIds: string[];
+  timelineVersion: number;
+  summary: string;
+}
+
+export interface TimelineSnapshot {
+  timeline: Timeline;
+  version: number;
+}
