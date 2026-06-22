@@ -9,10 +9,13 @@
 //! - [`signal`]: Context Signal generation + attachment (§6).
 //! - [`plugin`]: Workflow Plugin model/registry/rules (§7).
 //! - [`prompt`]: layered base system prompt + assembly (§6.5).
+//! - [`mcp`]: the `CoreHandle` bridge to `opentake-core` + the uniform
+//!   tool-dispatch shell that wraps every tool (§8).
 //!
-//! The rmcp MCP server (§1), the in-app chat client (§5), and the `CoreHandle`
-//! dispatch to `opentake-core` (§8) land in subsequent phases.
+//! The rmcp MCP server transport (§1) and the in-app chat client (§5) layer over
+//! the [`mcp`] dispatch shell and land in subsequent phases.
 
+pub mod mcp;
 pub mod plugin;
 pub mod prompt;
 pub mod signal;
