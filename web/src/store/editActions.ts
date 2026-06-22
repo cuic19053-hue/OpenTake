@@ -71,6 +71,20 @@ export async function unlinkClips(clipIds: string[]) {
   await applyAndRefresh({ type: "unlink", clipIds });
 }
 
+/** Create a new folder under `parentFolderId` (or at the root when null). The
+ *  backend appends to the manifest and emits `media_changed`; the panel
+ *  re-fetches via `refreshMedia`. */
+export async function createFolder(name: string, parentFolderId: string | null) {
+  await applyAndRefresh({ type: "createFolder", name, parentFolderId });
+}
+
+/** Move one or more assets into `folderId` (or to the root when null). Used by
+ *  the in-library drag flow (asset -> folder, folder -> folder). */
+export async function moveToFolder(assetIds: string[], folderId: string | null) {
+  if (assetIds.length === 0) return;
+  await applyAndRefresh({ type: "moveToFolder", assetIds, folderId });
+}
+
 export async function undo() {
   await api.undo();
   if (!isTauri) await forceRefresh();

@@ -138,7 +138,9 @@ export type EditRequest =
   | { type: "link"; clipIds: string[] }
   | { type: "unlink"; clipIds: string[] }
   | { type: "removeTracks"; trackIndexes: number[] }
-  | { type: "insertTrack"; kind: ClipType };
+  | { type: "insertTrack"; kind: ClipType }
+  | { type: "createFolder"; name: string; parentFolderId: string | null }
+  | { type: "moveToFolder"; assetIds: string[]; folderId: string | null };
 
 export interface TextEntryReq {
   trackIndex: number;
@@ -178,10 +180,21 @@ export interface MediaItem {
   hasAudio: boolean;
   path?: string | null;
   thumbnail?: string | null;
+  /** Folder id this asset is filed under, or `null`/undefined at the root. */
+  folderId?: string | null;
+}
+
+/** A media-library folder. Mirrors `MediaFolder` in the Rust domain. */
+export interface MediaFolder {
+  id: string;
+  name: string;
+  parentFolderId?: string | null;
 }
 
 export interface MediaList {
   items: MediaItem[];
+  /** All folders in the manifest. Empty when the project has no folders. */
+  folders?: MediaFolder[];
 }
 
 // MARK: - BYOK secret store (mirror of src-tauri SecretStatus)

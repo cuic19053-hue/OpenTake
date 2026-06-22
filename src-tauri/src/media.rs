@@ -29,7 +29,7 @@ use serde::Serialize;
 use tauri::State;
 
 use opentake_core::{importable_clip_type, AppCore, ProbedMedia};
-use opentake_domain::{ClipType, MediaManifestEntry, MediaSource};
+use opentake_domain::{ClipType, MediaFolder, MediaManifestEntry, MediaSource};
 use opentake_media::MediaEngine;
 
 /// Managed-state wrapper over the media engine. The engine is read-only here
@@ -78,6 +78,11 @@ pub struct MediaItemDto {
     pub path: Option<String>,
     /// On-disk thumbnail path, or `None` to render a type placeholder.
     pub thumbnail: Option<String>,
+    /// Folder id this asset is filed under, or `None` when at the root.
+    /// Mirrors `MediaManifestEntry::folder_id` so the panel can filter by the
+    /// current folder without an extra round-trip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<String>,
 }
 
 impl MediaItemDto {
@@ -99,16 +104,21 @@ impl MediaItemDto {
             has_audio: entry.has_audio.unwrap_or(false),
             path,
             thumbnail: None,
+            folder_id: entry.folder_id.clone(),
         }
     }
 }
 
-/// The media panel's catalog: every manifest entry as a [`MediaItemDto`].
+/// The media panel's catalog: every manifest entry as a [`MediaItemDto`] plus
+/// the folder tree (mirrored from the manifest) so the panel can render
+/// `FolderTile`s and filter by the current folder without an extra round-trip.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaListDto {
     /// All media items, in manifest order.
     pub items: Vec<MediaItemDto>,
+    /// All folders, in manifest order. Empty when the project has no folders.
+    pub folders: Vec<MediaFolder>,
 }
 
 impl MediaListDto {
@@ -121,6 +131,7 @@ impl MediaListDto {
                 .iter()
                 .map(MediaItemDto::from_entry)
                 .collect(),
+            folders: manifest.folders.clone(),
         }
     }
 }
@@ -308,6 +319,7 @@ mod tests {
             has_audio: false,
             path: Some("/p.png".into()),
             thumbnail: None,
+            folder_id: None,
         };
         let json = serde_json::to_string(&dto).unwrap();
         assert!(json.contains("\"hasAudio\""));
