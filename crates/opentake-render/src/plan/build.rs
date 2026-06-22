@@ -123,6 +123,13 @@ fn make_clip_plan(
         trim_start_frame: clip.trim_start_frame,
         media_type: clip.media_type,
         lottie_frame_count,
+        // Advanced pixel-effect inputs, copied verbatim from the clip (frame-
+        // independent this round). Drop a color grade that is the identity so the
+        // compositor can skip it cheaply.
+        color_grade: clip.color_grade.filter(|g| !g.is_identity()),
+        chroma_key: clip.chroma_key,
+        masks: clip.masks.clone(),
+        effects: clip.effects.clone(),
     }
 }
 
@@ -286,6 +293,10 @@ fn eval_layer<'a>(
         opacity,
         needs_premultiply: plan.needs_premultiply,
         clip_id: &plan.clip_id,
+        color_grade: plan.color_grade.as_ref(),
+        chroma_key: plan.chroma_key.as_ref(),
+        masks: &plan.masks,
+        effects: &plan.effects,
     })
 }
 

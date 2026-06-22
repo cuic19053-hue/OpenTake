@@ -299,6 +299,137 @@ impl ToolArgs for ActivateWorkflowArgs {
     const ALLOWED_KEYS: &'static [&'static str] = &["workflowId"];
 }
 
+// --- A-tier shader effects ---
+
+/// A `{r, g, b}` color-wheel triple used by `set_color_grade`'s lift/gamma/gain.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RgbArg {
+    pub r: Option<f64>,
+    pub g: Option<f64>,
+    pub b: Option<f64>,
+}
+impl ToolArgs for RgbArg {
+    const ALLOWED_KEYS: &'static [&'static str] = &["r", "g", "b"];
+}
+
+// --- set_color_grade ---
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetColorGradeArgs {
+    pub clip_ids: Vec<String>,
+    pub exposure: Option<f64>,
+    pub temperature: Option<f64>,
+    pub tint: Option<f64>,
+    pub lift: Option<RgbArg>,
+    pub gamma: Option<RgbArg>,
+    pub gain: Option<RgbArg>,
+    pub contrast: Option<f64>,
+    pub saturation: Option<f64>,
+    pub clear: Option<bool>,
+}
+impl ToolArgs for SetColorGradeArgs {
+    const ALLOWED_KEYS: &'static [&'static str] = &[
+        "clipIds",
+        "exposure",
+        "temperature",
+        "tint",
+        "lift",
+        "gamma",
+        "gain",
+        "contrast",
+        "saturation",
+        "clear",
+    ];
+}
+
+// --- chroma_key ---
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChromaKeyArgs {
+    pub clip_ids: Vec<String>,
+    pub key_color: Option<String>,
+    pub similarity: Option<f64>,
+    pub smoothness: Option<f64>,
+    pub spill: Option<f64>,
+    pub clear: Option<bool>,
+}
+impl ToolArgs for ChromaKeyArgs {
+    const ALLOWED_KEYS: &'static [&'static str] = &[
+        "clipIds",
+        "keyColor",
+        "similarity",
+        "smoothness",
+        "spill",
+        "clear",
+    ];
+}
+
+// --- set_mask ---
+/// A `{x, y}` point in normalized canvas space, used by mask geometry.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Point2Arg {
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+}
+impl ToolArgs for Point2Arg {
+    const ALLOWED_KEYS: &'static [&'static str] = &["x", "y"];
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MaskArg {
+    pub kind: String,
+    pub point: Option<Point2Arg>,
+    pub normal: Option<Point2Arg>,
+    pub center: Option<Point2Arg>,
+    pub radius: Option<Point2Arg>,
+    pub points: Option<Vec<Point2Arg>>,
+    pub feather: Option<f64>,
+    pub invert: Option<bool>,
+}
+impl ToolArgs for MaskArg {
+    const ALLOWED_KEYS: &'static [&'static str] = &[
+        "kind", "point", "normal", "center", "radius", "points", "feather", "invert",
+    ];
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetMaskArgs {
+    pub clip_ids: Vec<String>,
+    /// Kept as raw JSON so the dispatch layer can decode each entry with the
+    /// per-entry unknown-key guard (`MaskArg`), mirroring the `entries[]` pattern.
+    pub masks: Vec<serde_json::Value>,
+}
+impl ToolArgs for SetMaskArgs {
+    const ALLOWED_KEYS: &'static [&'static str] = &["clipIds", "masks"];
+}
+
+// --- apply_effect ---
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectArg {
+    pub name: String,
+    pub params: Option<std::collections::BTreeMap<String, f64>>,
+    pub enabled: Option<bool>,
+}
+impl ToolArgs for EffectArg {
+    const ALLOWED_KEYS: &'static [&'static str] = &["name", "params", "enabled"];
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyEffectArgs {
+    pub clip_ids: Vec<String>,
+    /// Raw JSON per the `entries[]` pattern (per-entry guard via `EffectArg`).
+    pub effects: Vec<serde_json::Value>,
+}
+impl ToolArgs for ApplyEffectArgs {
+    const ALLOWED_KEYS: &'static [&'static str] = &["clipIds", "effects"];
+}
+
 // --- inspect_media ---
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -800,5 +931,108 @@ mod tests {
         let v = serde_json::json!({"model": "x"});
         let err = decode_tool_args::<UpscaleMediaArgs>(&v, "").unwrap_err();
         assert_eq!(err.message, "arguments: missing required field 'mediaRef'");
+    }
+
+    // --- A-tier shader-effect args ---
+
+    #[test]
+    fn set_color_grade_partial_and_clip_ids() {
+        let v = serde_json::json!({
+            "clipIds": ["a", "b"],
+            "exposure": 0.5,
+            "saturation": 1.2,
+            "lift": {"r": 0.02}
+        });
+        let a: SetColorGradeArgs = decode_tool_args(&v, "").unwrap();
+        assert_eq!(a.clip_ids, vec!["a", "b"]);
+        assert_eq!(a.exposure, Some(0.5));
+        assert_eq!(a.saturation, Some(1.2));
+        assert_eq!(a.lift.unwrap().r, Some(0.02));
+        assert_eq!(a.contrast, None);
+    }
+
+    #[test]
+    fn set_color_grade_clear_form() {
+        let v = serde_json::json!({"clipIds": ["a"], "clear": true});
+        let a: SetColorGradeArgs = decode_tool_args(&v, "").unwrap();
+        assert_eq!(a.clear, Some(true));
+    }
+
+    #[test]
+    fn set_color_grade_rejects_unknown_field() {
+        let v = serde_json::json!({"clipIds": ["a"], "exposre": 1.0}); // typo
+        let err = decode_tool_args::<SetColorGradeArgs>(&v, "").unwrap_err();
+        assert!(
+            err.message.contains("unknown field(s) 'exposre'"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn chroma_key_decodes() {
+        let v = serde_json::json!({
+            "clipIds": ["a"], "keyColor": "#00FF00", "similarity": 0.3, "spill": 0.6
+        });
+        let a: ChromaKeyArgs = decode_tool_args(&v, "").unwrap();
+        assert_eq!(a.key_color.as_deref(), Some("#00FF00"));
+        assert_eq!(a.similarity, Some(0.3));
+        assert_eq!(a.spill, Some(0.6));
+    }
+
+    #[test]
+    fn chroma_key_requires_clip_ids() {
+        let v = serde_json::json!({"keyColor": "#00FF00"});
+        let err = decode_tool_args::<ChromaKeyArgs>(&v, "").unwrap_err();
+        assert_eq!(err.message, "arguments: missing required field 'clipIds'");
+    }
+
+    #[test]
+    fn set_mask_decodes_and_entry_guard() {
+        let v = serde_json::json!({
+            "clipIds": ["a"],
+            "masks": [{"kind": "circle", "center": {"x": 0.5, "y": 0.5}, "radius": {"x": 0.3, "y": 0.3}}]
+        });
+        let a: SetMaskArgs = decode_tool_args(&v, "").unwrap();
+        assert_eq!(a.masks.len(), 1);
+        // Each mask entry decodes with its own per-entry unknown-key guard.
+        let m: MaskArg = decode_tool_args(&a.masks[0], "masks[0]").unwrap();
+        assert_eq!(m.kind, "circle");
+        assert_eq!(m.center.unwrap().x, Some(0.5));
+    }
+
+    #[test]
+    fn mask_entry_rejects_unknown_key() {
+        let v = serde_json::json!({"kind": "circle", "radius": {"x": 0.3}, "bogus": 1});
+        let err = decode_tool_args::<MaskArg>(&v, "masks[0]").unwrap_err();
+        assert!(
+            err.message
+                .starts_with("masks[0]: unknown field(s) 'bogus'"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn apply_effect_decodes_with_params() {
+        let v = serde_json::json!({
+            "clipIds": ["a"],
+            "effects": [{"name": "gaussianBlur", "params": {"radius": 4.0}}]
+        });
+        let a: ApplyEffectArgs = decode_tool_args(&v, "").unwrap();
+        assert_eq!(a.effects.len(), 1);
+        let e: EffectArg = decode_tool_args(&a.effects[0], "effects[0]").unwrap();
+        assert_eq!(e.name, "gaussianBlur");
+        assert_eq!(e.params.unwrap().get("radius"), Some(&4.0));
+    }
+
+    #[test]
+    fn apply_effect_entry_requires_name() {
+        let v = serde_json::json!({"params": {"radius": 2.0}});
+        let err = decode_tool_args::<EffectArg>(&v, "effects[0]").unwrap_err();
+        assert_eq!(
+            err.message,
+            "effects[0].name: missing required field 'name'"
+        );
     }
 }

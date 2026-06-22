@@ -47,6 +47,11 @@ pub enum ToolName {
     ActivateWorkflow,
     ListWorkflows,
     DeactivateWorkflow,
+    // --- OpenTake A-tier shader effects (docs/ADVANCED-FEATURES.md A-layer) ---
+    SetColorGrade,
+    ChromaKey,
+    SetMask,
+    ApplyEffect,
 }
 
 impl ToolName {
@@ -87,11 +92,15 @@ impl ToolName {
             ToolName::ActivateWorkflow => "activate_workflow",
             ToolName::ListWorkflows => "list_workflows",
             ToolName::DeactivateWorkflow => "deactivate_workflow",
+            ToolName::SetColorGrade => "set_color_grade",
+            ToolName::ChromaKey => "chroma_key",
+            ToolName::SetMask => "set_mask",
+            ToolName::ApplyEffect => "apply_effect",
         }
     }
 
     /// All tools in registration order.
-    pub const ALL: [ToolName; 34] = [
+    pub const ALL: [ToolName; 38] = [
         ToolName::GetTimeline,
         ToolName::GetMedia,
         ToolName::InspectMedia,
@@ -126,6 +135,10 @@ impl ToolName {
         ToolName::ActivateWorkflow,
         ToolName::ListWorkflows,
         ToolName::DeactivateWorkflow,
+        ToolName::SetColorGrade,
+        ToolName::ChromaKey,
+        ToolName::SetMask,
+        ToolName::ApplyEffect,
     ];
 
     /// The 31 upstream-equivalent tools (Issue #9's "31 tools").
@@ -185,8 +198,25 @@ mod tests {
     }
 
     #[test]
-    fn all_set_is_34() {
-        assert_eq!(ToolName::ALL.len(), 34);
+    fn all_set_is_38() {
+        assert_eq!(ToolName::ALL.len(), 38);
+    }
+
+    #[test]
+    fn a_tier_effect_tools_have_expected_wire_names() {
+        assert_eq!(ToolName::SetColorGrade.as_str(), "set_color_grade");
+        assert_eq!(ToolName::ChromaKey.as_str(), "chroma_key");
+        assert_eq!(ToolName::SetMask.as_str(), "set_mask");
+        assert_eq!(ToolName::ApplyEffect.as_str(), "apply_effect");
+        // And they round-trip through FromStr.
+        for t in [
+            ToolName::SetColorGrade,
+            ToolName::ChromaKey,
+            ToolName::SetMask,
+            ToolName::ApplyEffect,
+        ] {
+            assert_eq!(ToolName::from_str(t.as_str()), Ok(t));
+        }
     }
 
     #[test]
