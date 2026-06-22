@@ -3162,6 +3162,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentake-motion"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "image",
+ "opentake-domain",
+ "opentake-render",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "opentake-ops"
 version = "0.1.0"
 dependencies = [

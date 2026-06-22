@@ -94,6 +94,11 @@ pub fn description(tool: ToolName) -> &'static str {
         ToolName::SetMask => "Sets the vector mask(s) on one or more clips in one undoable action — the masks generate a per-pixel alpha that hides everything outside them (intersection of all masks). Each mask is one of: a linear/gradient split (a line through a point with a normal), a circle/ellipse (center + per-axis radius), or a polygon/pen shape (a list of points). feather softens the edge in normalized canvas units; invert flips inside/outside. Coordinates are 0–1 normalized canvas space. Pass an empty masks array to clear all masks. Applies to every clip in clipIds.",
 
         ToolName::ApplyEffect => "Sets the effect chain on one or more clips in one undoable action — an ordered list of named pixel effects, each a shader pass with named numeric parameters. Each effect is { name, params } where name selects the effect (e.g. 'gaussianBlur') and params are its scalar inputs (e.g. { radius: 4 }); pass enabled:false to keep a disabled effect in the chain. The list replaces the clip's current effects; pass an empty array to clear them. Applies to every clip in clipIds.",
+
+        // --- OpenTake Web motion graphics (docs/MOTION-GRAPHICS-PLUGIN.md, Issue #14) ---
+        ToolName::AddMotionGraphic => "Adds a Web motion graphic (animated title, lower-third, data callout, transition card) to the timeline as a single undoable action, and returns its clipId. You author the animation with Web technology and OpenTake renders it deterministically — every frame reproducible, preview == export — to a transparent RGBA overlay that composites over your other layers like any other clip.\n\nThe 'source' object is exactly one of:\n  • { code: \"<html/css/js>\" } — a self-contained HTML document (it may embed <style> and <script>; CSS keyframes, the Web Animations API, SVG, or libraries like GSAP are all fine). Animate against the injected deterministic clock: OpenTake.seek(seconds) is called once per frame, and OpenTake.onSeek(t => …) lets you drive state from it; do NOT rely on Date.now()/real timers, which are frozen for reproducibility. Keep the body background transparent so the result is an overlay.\n  • { templateId, params } — instantiate a registered motion template by id with typed params (string/number/bool/color; colors are hex '#RRGGBB'/'#RRGGBBAA'). The template declares which params it accepts.\n\nstartFrame/durationFrames are project frames (from get_timeline). transparent defaults true (overlay); set false for an opaque clip. trackIndex is optional — omit to auto-create a new video track at the top for the graphic; set it to target an existing non-audio track (same overwrite-on-overlap behavior as add_texts). Rendering runs in a network-isolated sandbox with a time and size budget, so reference only inline/allowlisted assets.",
+
+        ToolName::EditMotionGraphic => "Edits an existing motion graphic clip's source and re-renders it as a single undoable action. Pass the clipId (from add_motion_graphic or get_timeline) and at least one of:\n  • code — replace the inline HTML/CSS/JS of a code-authored graphic.\n  • params — override template params (merged over the current bindings) of a template-authored graphic.\n\nRe-rendering is content-hash cached: if your change produces identical pixels (or you pass values that resolve to the same source) the cached frames are reused; otherwise only the changed graphic is recomputed. Use this to iterate on a graphic — tweak the text, timing, or colors — without removing and re-adding the clip. Editing code on a template clip (or params on a code clip) is rejected; it must match how the clip was authored.",
     }
 }
 
@@ -602,6 +607,35 @@ pub fn input_schema(tool: ToolName) -> Value {
                 }
             }),
             &["clipIds", "effects"],
+        ),
+
+        // --- OpenTake Web motion graphics ---
+        ToolName::AddMotionGraphic => object(
+            json!({
+                "source": {
+                    "type": "object",
+                    "description": "Exactly one of code or templateId must be set. code is a self-contained HTML/CSS/JS document; templateId instantiates a registered template with params.",
+                    "properties": {
+                        "code": {"type": "string", "description": "Self-contained HTML document (may embed <style>/<script>). Animate against the injected deterministic clock (OpenTake.seek / OpenTake.onSeek), not wall-clock time. Keep the body transparent for an overlay."},
+                        "templateId": {"type": "string", "description": "Registered motion-template id (e.g. 'lower-third.glass'). Mutually exclusive with code."},
+                        "params": {"type": "object", "description": "Template params: name -> value. Values are string, number, bool, or a hex color string '#RRGGBB'/'#RRGGBBAA'. Only valid with templateId."}
+                    }
+                },
+                "startFrame": {"type": "integer", "description": "Timeline frame position to place the graphic (project frames)."},
+                "durationFrames": {"type": "integer", "description": "Clip length on the timeline, in project frames (>= 1)."},
+                "transparent": {"type": "boolean", "description": "Render a transparent RGBA overlay (default true). Set false for an opaque clip."},
+                "trackIndex": {"type": "integer", "description": "Optional. Existing non-audio track index (0-based) to place the graphic on. Omit to auto-create a new video track at the top."}
+            }),
+            &["source", "startFrame", "durationFrames"],
+        ),
+
+        ToolName::EditMotionGraphic => object(
+            json!({
+                "clipId": {"type": "string", "description": "The motion-graphic clip id to edit (from add_motion_graphic or get_timeline)."},
+                "code": {"type": "string", "description": "Replacement HTML/CSS/JS for a code-authored graphic. Only valid when the clip was authored with code."},
+                "params": {"type": "object", "description": "Template param overrides (merged over current bindings) for a template-authored graphic. Values are string, number, bool, or a hex color string. Only valid when the clip was authored from a template."}
+            }),
+            &["clipId"],
         ),
     }
 }

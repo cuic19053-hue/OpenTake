@@ -430,6 +430,56 @@ impl ToolArgs for ApplyEffectArgs {
     const ALLOWED_KEYS: &'static [&'static str] = &["clipIds", "effects"];
 }
 
+// --- Web motion graphics (docs/MOTION-GRAPHICS-PLUGIN.md, Issue #14) ---
+
+/// The `source` object on `add_motion_graphic` — exactly one of `code` or
+/// `templateId` set (mutual-exclusion is a business-level guard in the motion
+/// dispatch path, like `import_media`'s source). `params` only applies with a
+/// template; values are kept as raw JSON so the dispatch layer converts them to
+/// `opentake_motion::ParamValue` without coupling the tool layer to that crate.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MotionSourceArg {
+    pub code: Option<String>,
+    pub template_id: Option<String>,
+    pub params: Option<serde_json::Map<String, serde_json::Value>>,
+}
+impl ToolArgs for MotionSourceArg {
+    const ALLOWED_KEYS: &'static [&'static str] = &["code", "templateId", "params"];
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AddMotionGraphicArgs {
+    /// Kept as raw JSON so the dispatch layer decodes it with the per-object
+    /// unknown-key guard (`MotionSourceArg`), mirroring `import_media`'s `source`.
+    pub source: serde_json::Value,
+    pub start_frame: i32,
+    pub duration_frames: i32,
+    pub transparent: Option<bool>,
+    pub track_index: Option<usize>,
+}
+impl ToolArgs for AddMotionGraphicArgs {
+    const ALLOWED_KEYS: &'static [&'static str] = &[
+        "source",
+        "startFrame",
+        "durationFrames",
+        "transparent",
+        "trackIndex",
+    ];
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EditMotionGraphicArgs {
+    pub clip_id: String,
+    pub code: Option<String>,
+    pub params: Option<serde_json::Map<String, serde_json::Value>>,
+}
+impl ToolArgs for EditMotionGraphicArgs {
+    const ALLOWED_KEYS: &'static [&'static str] = &["clipId", "code", "params"];
+}
+
 // --- inspect_media ---
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1033,6 +1083,99 @@ mod tests {
         assert_eq!(
             err.message,
             "effects[0].name: missing required field 'name'"
+        );
+    }
+
+    // --- Web motion-graphic args ---
+
+    #[test]
+    fn add_motion_graphic_decodes_code_source() {
+        let v = serde_json::json!({
+            "source": {"code": "<h1>Title</h1>"},
+            "startFrame": 30,
+            "durationFrames": 90,
+            "transparent": true
+        });
+        let a: AddMotionGraphicArgs = decode_tool_args(&v, "").unwrap();
+        assert_eq!(a.start_frame, 30);
+        assert_eq!(a.duration_frames, 90);
+        assert_eq!(a.transparent, Some(true));
+        assert!(a.track_index.is_none());
+        // The nested source decodes with its own per-object unknown-key guard.
+        let src: MotionSourceArg = decode_tool_args(&a.source, "source").unwrap();
+        assert_eq!(src.code.as_deref(), Some("<h1>Title</h1>"));
+        assert!(src.template_id.is_none());
+    }
+
+    #[test]
+    fn add_motion_graphic_decodes_template_source_with_params() {
+        let v = serde_json::json!({
+            "source": {"templateId": "lower-third.glass", "params": {"title": "Hi", "accent": "#FF0066"}},
+            "startFrame": 0,
+            "durationFrames": 120,
+            "trackIndex": 2
+        });
+        let a: AddMotionGraphicArgs = decode_tool_args(&v, "").unwrap();
+        assert_eq!(a.track_index, Some(2));
+        let src: MotionSourceArg = decode_tool_args(&a.source, "source").unwrap();
+        assert_eq!(src.template_id.as_deref(), Some("lower-third.glass"));
+        assert_eq!(
+            src.params.as_ref().unwrap().get("title").unwrap(),
+            &serde_json::json!("Hi")
+        );
+    }
+
+    #[test]
+    fn add_motion_graphic_requires_source_and_frames() {
+        let v = serde_json::json!({"startFrame": 0, "durationFrames": 30});
+        let err = decode_tool_args::<AddMotionGraphicArgs>(&v, "").unwrap_err();
+        assert_eq!(err.message, "arguments: missing required field 'source'");
+    }
+
+    #[test]
+    fn add_motion_graphic_rejects_unknown_field() {
+        let v = serde_json::json!({
+            "source": {"code": "x"}, "startFrame": 0, "durationFrames": 30, "loop": true
+        });
+        let err = decode_tool_args::<AddMotionGraphicArgs>(&v, "").unwrap_err();
+        assert!(
+            err.message.contains("unknown field(s) 'loop'"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn motion_source_arg_rejects_unknown_nested_key() {
+        let v = serde_json::json!({"code": "x", "bogus": 1});
+        let err = decode_tool_args::<MotionSourceArg>(&v, "source").unwrap_err();
+        assert!(
+            err.message.starts_with("source: unknown field(s) 'bogus'"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn edit_motion_graphic_decodes_and_requires_clip_id() {
+        let ok = serde_json::json!({"clipId": "c1", "code": "<b>new</b>"});
+        let a: EditMotionGraphicArgs = decode_tool_args(&ok, "").unwrap();
+        assert_eq!(a.clip_id, "c1");
+        assert_eq!(a.code.as_deref(), Some("<b>new</b>"));
+        assert!(a.params.is_none());
+
+        let missing = serde_json::json!({"code": "x"});
+        let err = decode_tool_args::<EditMotionGraphicArgs>(&missing, "").unwrap_err();
+        assert_eq!(err.message, "arguments: missing required field 'clipId'");
+    }
+
+    #[test]
+    fn edit_motion_graphic_decodes_params_override() {
+        let v = serde_json::json!({"clipId": "c1", "params": {"title": "Updated"}});
+        let a: EditMotionGraphicArgs = decode_tool_args(&v, "").unwrap();
+        assert_eq!(
+            a.params.unwrap().get("title").unwrap(),
+            &serde_json::json!("Updated")
         );
     }
 }

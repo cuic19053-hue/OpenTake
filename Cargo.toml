@@ -6,6 +6,7 @@ members = [
     "crates/opentake-project",
     "crates/opentake-render",
     "crates/opentake-media",
+    "crates/opentake-motion",
     "crates/opentake-agent",
     "crates/opentake-gen",
     "crates/opentake-core",
@@ -26,6 +27,7 @@ opentake-ops = { path = "crates/opentake-ops" }
 opentake-project = { path = "crates/opentake-project" }
 opentake-render = { path = "crates/opentake-render" }
 opentake-media = { path = "crates/opentake-media" }
+opentake-motion = { path = "crates/opentake-motion" }
 opentake-agent = { path = "crates/opentake-agent" }
 opentake-gen = { path = "crates/opentake-gen" }
 opentake-core = { path = "crates/opentake-core" }

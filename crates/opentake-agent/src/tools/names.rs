@@ -52,6 +52,9 @@ pub enum ToolName {
     ChromaKey,
     SetMask,
     ApplyEffect,
+    // --- OpenTake Web motion graphics (docs/MOTION-GRAPHICS-PLUGIN.md, Issue #14) ---
+    AddMotionGraphic,
+    EditMotionGraphic,
 }
 
 impl ToolName {
@@ -96,11 +99,13 @@ impl ToolName {
             ToolName::ChromaKey => "chroma_key",
             ToolName::SetMask => "set_mask",
             ToolName::ApplyEffect => "apply_effect",
+            ToolName::AddMotionGraphic => "add_motion_graphic",
+            ToolName::EditMotionGraphic => "edit_motion_graphic",
         }
     }
 
     /// All tools in registration order.
-    pub const ALL: [ToolName; 38] = [
+    pub const ALL: [ToolName; 40] = [
         ToolName::GetTimeline,
         ToolName::GetMedia,
         ToolName::InspectMedia,
@@ -139,6 +144,8 @@ impl ToolName {
         ToolName::ChromaKey,
         ToolName::SetMask,
         ToolName::ApplyEffect,
+        ToolName::AddMotionGraphic,
+        ToolName::EditMotionGraphic,
     ];
 
     /// The 31 upstream-equivalent tools (Issue #9's "31 tools").
@@ -198,8 +205,29 @@ mod tests {
     }
 
     #[test]
-    fn all_set_is_38() {
-        assert_eq!(ToolName::ALL.len(), 38);
+    fn all_set_is_40() {
+        assert_eq!(ToolName::ALL.len(), 40);
+    }
+
+    #[test]
+    fn motion_graphic_tools_have_expected_wire_names() {
+        assert_eq!(ToolName::AddMotionGraphic.as_str(), "add_motion_graphic");
+        assert_eq!(ToolName::EditMotionGraphic.as_str(), "edit_motion_graphic");
+        // And they round-trip through FromStr.
+        for t in [ToolName::AddMotionGraphic, ToolName::EditMotionGraphic] {
+            assert_eq!(ToolName::from_str(t.as_str()), Ok(t));
+        }
+        // They are present in ALL exactly once each.
+        assert_eq!(
+            ToolName::ALL
+                .iter()
+                .filter(|t| matches!(t, ToolName::AddMotionGraphic | ToolName::EditMotionGraphic))
+                .count(),
+            2
+        );
+        // ...and are NOT part of the 31 upstream tools.
+        assert!(!ToolName::UPSTREAM.contains(&ToolName::AddMotionGraphic));
+        assert!(!ToolName::UPSTREAM.contains(&ToolName::EditMotionGraphic));
     }
 
     #[test]
