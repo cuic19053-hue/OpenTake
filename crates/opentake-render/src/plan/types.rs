@@ -13,7 +13,7 @@
 //! The black background is NOT a clip here — it is the compositor clear color
 //! `(0,0,0,1)` (SPEC §3.5).
 
-use opentake_domain::ClipType;
+use opentake_domain::{ChromaKey, ClipType, ColorGrade, Effect, Mask};
 
 /// Canvas pixel size (already even-ized; see [`crate::size`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -88,6 +88,21 @@ pub struct ClipPlan {
     /// For [`TextureSource::Lottie`], the source's internal frame count (modulo
     /// wrap; SPEC §4.3). `None` for non-Lottie or unknown.
     pub lottie_frame_count: Option<i64>,
+
+    // Advanced pixel-effect inputs (A-tier; `docs/ADVANCED-FEATURES.md`). Copied
+    // from the source `Clip` at plan-build time (not keyframed in this round, so
+    // they are frame-independent). The compositor applies them in the fragment
+    // shader; the pure pixel math lives in `opentake_domain::grade`.
+    /// Linear-light color grade, or `None` when the clip has no grade.
+    pub color_grade: Option<ColorGrade>,
+    /// Chroma key, or `None` when the clip has no keying.
+    pub chroma_key: Option<ChromaKey>,
+    /// Vector masks (intersected coverage). Empty = no masking.
+    pub masks: Vec<Mask>,
+    /// Generic named-effect chain. Empty = no effects. Carried through the plan
+    /// for downstream passes; the current compositor renders the color/chroma/mask
+    /// stages and ignores unknown effect names (see render TODO).
+    pub effects: Vec<Effect>,
 }
 
 /// The static plan for a whole timeline.
@@ -126,6 +141,17 @@ pub struct LayerDraw<'a> {
     pub opacity: f64,
     pub needs_premultiply: bool,
     pub clip_id: &'a str,
+    /// Color grade applied in-shader (linear-light chain), borrowed from the
+    /// [`ClipPlan`]. `None` = no grade.
+    pub color_grade: Option<&'a ColorGrade>,
+    /// Chroma key applied in-shader, borrowed from the [`ClipPlan`]. `None` = none.
+    pub chroma_key: Option<&'a ChromaKey>,
+    /// Masks applied in-shader (intersected coverage), borrowed from the
+    /// [`ClipPlan`]. Empty = no masking.
+    pub masks: &'a [Mask],
+    /// Effect chain, borrowed from the [`ClipPlan`]. Carried for downstream
+    /// passes. Empty = none.
+    pub effects: &'a [Effect],
 }
 
 /// A single frame's ordered draw list + clear color.

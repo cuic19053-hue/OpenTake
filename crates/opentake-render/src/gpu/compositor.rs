@@ -9,12 +9,44 @@ use std::rc::Rc;
 
 use bytemuck::{Pod, Zeroable};
 
+use opentake_domain::{ColorGrade, LiftGammaGain, MaskShape};
+
 use crate::gpu::texture::GpuTexture;
 use crate::gpu::RenderError;
-use crate::plan::{FramePlan, RenderSize, TextureSource};
+use crate::plan::{FramePlan, LayerDraw, RenderSize, TextureSource};
 use crate::source::DecodedFrame;
 
-/// Uniform mirror of WGSL `struct U` — four 16-byte-aligned vec4s (SPEC §3.2).
+/// Maximum masks evaluated in-shader per draw (mirrors `MASK_CAP` in
+/// `shader.wgsl`). Extra masks on a clip beyond this are ignored by the
+/// compositor (the domain still stores and unit-tests all of them).
+const MASK_CAP: usize = 4;
+
+/// Flag bits packed into `canvas_op_flags[3]` (bitcast to u32 in WGSL).
+const FLAG_PREMULTIPLY: u32 = 1;
+const FLAG_GRADE: u32 = 2;
+const FLAG_CHROMA: u32 = 4;
+
+/// Mask kind tags (mirror `MaskShape` / the WGSL `MASK_*` consts). Polygon masks
+/// are not rendered in-shader (see shader TODO); they encode as `MASK_NOOP` which
+/// the shader treats as a full-coverage circle (no clipping).
+const MASK_LINEAR: f32 = 0.0;
+const MASK_CIRCLE: f32 = 1.0;
+/// A circle large enough to cover the whole canvas — used to make an unsupported
+/// (polygon) mask a no-op instead of silently clipping.
+const MASK_NOOP_GEO: [f32; 4] = [0.5, 0.5, 8.0, 8.0];
+
+/// One mask in the uniform (mirrors WGSL `MaskGpu`): `head = (kind, feather,
+/// invert, pad)`, `geo` packs the shape geometry.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable, Default)]
+struct MaskGpu {
+    head: [f32; 4],
+    geo: [f32; 4],
+}
+
+/// Uniform mirror of WGSL `struct U` (SPEC §3.2), extended with the A-tier color
+/// grade / chroma key / mask parameters. Field order + vec4 alignment match the
+/// WGSL struct exactly.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Uniforms {
@@ -22,6 +54,99 @@ struct Uniforms {
     crop_uv: [f32; 4],         // u0, v0, u1, v1
     affine1_nat: [f32; 4],     // tx, ty, natW, natH
     canvas_op_flags: [f32; 4], // canvasW, canvasH, opacity, flags-as-f32
+    grade_exp_wb: [f32; 4],    // exposure, wb_r, wb_g, wb_b
+    grade_lift: [f32; 4],      // lift_r, lift_g, lift_b, contrast
+    grade_gamma: [f32; 4],     // gamma_r, gamma_g, gamma_b, saturation
+    grade_gain: [f32; 4],      // gain_r, gain_g, gain_b, pad
+    chroma0: [f32; 4],         // key_r, key_g, key_b, similarity
+    chroma1: [f32; 4],         // smoothness, spill, pad, pad
+    mask_meta: [f32; 4],       // mask_count, pad, pad, pad
+    masks: [MaskGpu; MASK_CAP],
+}
+
+/// Identity color-grade uniform block (exposure 0, wb/gain 1, lift 0, gamma 1,
+/// contrast 0, saturation 1). Used when a draw has no grade.
+fn identity_grade_blocks() -> ([f32; 4], [f32; 4], [f32; 4], [f32; 4]) {
+    (
+        [0.0, 1.0, 1.0, 1.0], // exposure, wb
+        [0.0, 0.0, 0.0, 0.0], // lift, contrast
+        [1.0, 1.0, 1.0, 1.0], // gamma, saturation
+        [1.0, 1.0, 1.0, 0.0], // gain, pad
+    )
+}
+
+/// Pack a [`ColorGrade`] into the four uniform vec4 blocks the shader reads. The
+/// white balance is resolved to per-channel gain CPU-side (the shader multiplies
+/// it directly), keeping the WGSL mirror of `ColorGrade::apply_linear` simple.
+fn grade_blocks(g: &ColorGrade) -> ([f32; 4], [f32; 4], [f32; 4], [f32; 4]) {
+    let wb = g.white_balance_gain();
+    let LiftGammaGain { lift, gamma, gain } = g.lift_gamma_gain;
+    (
+        [
+            g.exposure as f32,
+            wb.r as f32,
+            wb.g as f32,
+            wb.b as f32,
+        ],
+        [
+            lift.r as f32,
+            lift.g as f32,
+            lift.b as f32,
+            g.contrast as f32,
+        ],
+        [
+            gamma.r as f32,
+            gamma.g as f32,
+            gamma.b as f32,
+            g.saturation as f32,
+        ],
+        [gain.r as f32, gain.g as f32, gain.b as f32, 0.0],
+    )
+}
+
+/// Pack a draw's masks into the fixed-capacity uniform array, returning the count
+/// the shader should evaluate. Linear + circle masks encode directly; polygon
+/// masks (unsupported in-shader) encode as a full-coverage no-op so they neither
+/// clip nor crash. Masks beyond [`MASK_CAP`] are dropped.
+fn pack_masks(draw: &LayerDraw<'_>) -> ([MaskGpu; MASK_CAP], f32) {
+    let mut out = [MaskGpu::default(); MASK_CAP];
+    let mut n = 0usize;
+    for mask in draw.masks.iter() {
+        if n >= MASK_CAP {
+            break;
+        }
+        let invert = if mask.invert { 1.0 } else { 0.0 };
+        let (kind, geo) = match &mask.shape {
+            MaskShape::Linear { point, normal } => (
+                MASK_LINEAR,
+                [
+                    point.x as f32,
+                    point.y as f32,
+                    normal.x as f32,
+                    normal.y as f32,
+                ],
+            ),
+            MaskShape::Circle { center, radius } => (
+                MASK_CIRCLE,
+                [
+                    center.x as f32,
+                    center.y as f32,
+                    radius.x as f32,
+                    radius.y as f32,
+                ],
+            ),
+            // Polygon masks are unsupported in-shader (TODO: storage buffer for
+            // points). Encode as a full-canvas circle so they are a visual no-op
+            // rather than silently clipping.
+            MaskShape::Poly { .. } => (MASK_CIRCLE, MASK_NOOP_GEO),
+        };
+        out[n] = MaskGpu {
+            head: [kind, mask.feather as f32, invert, 0.0],
+            geo,
+        };
+        n += 1;
+    }
+    (out, n as f32)
 }
 
 /// Working color format. The PoC composites in the sRGB non-linear domain
@@ -194,7 +319,35 @@ impl Compositor {
             let Some(tex) = resolver.resolve(draw.source, draw.source_frame) else {
                 continue;
             };
-            let flags: u32 = if draw.needs_premultiply { 1 } else { 0 };
+            // Assemble flags + the A-tier parameter blocks for this draw.
+            let mut flags: u32 = if draw.needs_premultiply {
+                FLAG_PREMULTIPLY
+            } else {
+                0
+            };
+            let (grade_exp_wb, grade_lift, grade_gamma, grade_gain) = match draw.color_grade {
+                Some(g) if !g.is_identity() => {
+                    flags |= FLAG_GRADE;
+                    grade_blocks(g)
+                }
+                _ => identity_grade_blocks(),
+            };
+            let (chroma0, chroma1) = match draw.chroma_key {
+                Some(k) => {
+                    flags |= FLAG_CHROMA;
+                    (
+                        [
+                            k.key_color.r as f32,
+                            k.key_color.g as f32,
+                            k.key_color.b as f32,
+                            k.similarity as f32,
+                        ],
+                        [k.smoothness as f32, k.spill as f32, 0.0, 0.0],
+                    )
+                }
+                None => ([0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]),
+            };
+            let (masks, mask_count) = pack_masks(draw);
             let u = Uniforms {
                 affine0: [
                     draw.affine[0] as f32,
@@ -220,6 +373,14 @@ impl Compositor {
                     draw.opacity as f32,
                     f32::from_bits(flags),
                 ],
+                grade_exp_wb,
+                grade_lift,
+                grade_gamma,
+                grade_gain,
+                chroma0,
+                chroma1,
+                mask_meta: [mask_count, 0.0, 0.0, 0.0],
+                masks,
             };
             let ubuf = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("opentake-render uniform"),

@@ -18,7 +18,7 @@
 
 use std::collections::HashSet;
 
-use opentake_domain::{ClipType, Timeline, Transform};
+use opentake_domain::{ChromaKey, ClipType, ColorGrade, Effect, Mask, Timeline, Transform};
 
 use crate::editor_state::EditorState;
 use crate::engines::FrameRange;
@@ -172,6 +172,26 @@ pub enum EditCommand {
         property: KeyframeProperty,
         payload: KeyframePayload,
     },
+    /// Set (or clear with `None`) the color grade on one or more clips.
+    SetColorGrade {
+        clip_ids: Vec<String>,
+        grade: Option<ColorGrade>,
+    },
+    /// Set (or clear with `None`) the chroma key on one or more clips.
+    SetChromaKey {
+        clip_ids: Vec<String>,
+        chroma_key: Option<ChromaKey>,
+    },
+    /// Replace the mask list on one or more clips (empty clears all masks).
+    SetMasks {
+        clip_ids: Vec<String>,
+        masks: Vec<Mask>,
+    },
+    /// Replace the effect chain on one or more clips (empty clears all effects).
+    SetEffects {
+        clip_ids: Vec<String>,
+        effects: Vec<Effect>,
+    },
     /// Ripple-delete project-frame ranges on a track, closing the gaps.
     RippleDeleteRanges {
         track_index: usize,
@@ -257,6 +277,15 @@ pub fn apply(
             property,
             payload,
         } => set_keyframes(state, clip_id, property, payload),
+        EditCommand::SetColorGrade { clip_ids, grade } => {
+            set_color_grade(state, clip_ids, grade)
+        }
+        EditCommand::SetChromaKey {
+            clip_ids,
+            chroma_key,
+        } => set_chroma_key(state, clip_ids, chroma_key),
+        EditCommand::SetMasks { clip_ids, masks } => set_masks(state, clip_ids, masks),
+        EditCommand::SetEffects { clip_ids, effects } => set_effects(state, clip_ids, effects),
         EditCommand::RippleDeleteRanges {
             track_index,
             ranges,
@@ -715,6 +744,88 @@ fn set_keyframes(
             Ok(vec![loc_clip_id(st, loc)])
         },
     )
+}
+
+// MARK: - Advanced pixel-effect commands (A-tier)
+//
+// These set per-clip visual fields (color grade / chroma key / masks / effects).
+// Like volume/opacity/transform in `set_clip_properties`, they are per-clip and
+// do NOT propagate to linked partners. Each validates its `clip_ids` and runs
+// inside the shared `withTimelineSwap` transaction (snapshot -> mutate ->
+// commit-if-changed + version bump), so undo/redo and versioning come for free.
+
+/// Validate that `clip_ids` is non-empty and every id resolves, then run `mutate`
+/// for each clip inside one transaction. Shared by the four effect setters.
+fn set_clip_effect_field(
+    state: &mut EditorState,
+    clip_ids: Vec<String>,
+    action_name: &'static str,
+    mutate: impl Fn(&mut opentake_domain::Clip),
+) -> Result<EditResult, EditError> {
+    if clip_ids.is_empty() {
+        return Err(EditError::Invalid(
+            "Missing or empty 'clipIds' array".into(),
+        ));
+    }
+    for id in &clip_ids {
+        if state.find_clip(id).is_none() {
+            return Err(EditError::Invalid(format!("Clip not found: {id}")));
+        }
+    }
+    let n = clip_ids.len();
+    transact(
+        state,
+        action_name,
+        move |_| format!("Updated {n} clip(s)"),
+        move |st| {
+            for id in &clip_ids {
+                if let Some((ti, ci)) = find(&st.timeline, id) {
+                    mutate(&mut st.timeline.tracks[ti].clips[ci]);
+                }
+            }
+            Ok(clip_ids.clone())
+        },
+    )
+}
+
+fn set_color_grade(
+    state: &mut EditorState,
+    clip_ids: Vec<String>,
+    grade: Option<ColorGrade>,
+) -> Result<EditResult, EditError> {
+    set_clip_effect_field(state, clip_ids, "Set Color Grade", move |clip| {
+        clip.color_grade = grade;
+    })
+}
+
+fn set_chroma_key(
+    state: &mut EditorState,
+    clip_ids: Vec<String>,
+    chroma_key: Option<ChromaKey>,
+) -> Result<EditResult, EditError> {
+    set_clip_effect_field(state, clip_ids, "Set Chroma Key", move |clip| {
+        clip.chroma_key = chroma_key;
+    })
+}
+
+fn set_masks(
+    state: &mut EditorState,
+    clip_ids: Vec<String>,
+    masks: Vec<Mask>,
+) -> Result<EditResult, EditError> {
+    set_clip_effect_field(state, clip_ids, "Set Masks", move |clip| {
+        clip.masks = masks.clone();
+    })
+}
+
+fn set_effects(
+    state: &mut EditorState,
+    clip_ids: Vec<String>,
+    effects: Vec<Effect>,
+) -> Result<EditResult, EditError> {
+    set_clip_effect_field(state, clip_ids, "Set Effects", move |clip| {
+        clip.effects = effects.clone();
+    })
 }
 
 fn ripple_delete_ranges(

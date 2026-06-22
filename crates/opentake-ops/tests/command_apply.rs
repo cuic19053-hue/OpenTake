@@ -4,6 +4,7 @@
 //! the refusal path — the behaviors the port must match upstream.
 
 use opentake_domain::{AnimPair, Interpolation, Keyframe, KeyframeTrack};
+use opentake_domain::{ChromaKey, ColorGrade, Effect, Mask, MaskShape, Point2};
 use opentake_domain::{Clip, ClipType, MediaManifest, Timeline, Track, Transform};
 use opentake_ops::{
     apply, ClipEntry, ClipMove, ClipProperties, EditCommand, EditError, EditorState, FrameRange,
@@ -768,4 +769,245 @@ fn empty_payloads_are_rejected() {
         apply(&mut st, EditCommand::RemoveClips { clip_ids: vec![] }, &g),
         Err(EditError::Invalid(_))
     ));
+}
+
+// ---- advanced pixel-effect commands (A-tier) ------------------------------
+
+fn one_clip_state() -> EditorState {
+    state(vec![video_track("v", true, vec![clip("c", 0, 30)])])
+}
+
+fn find_clip<'a>(st: &'a EditorState, id: &str) -> &'a Clip {
+    st.timeline
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .find(|c| c.id == id)
+        .expect("clip exists")
+}
+
+#[test]
+fn set_color_grade_applies_and_undoes() {
+    let mut st = one_clip_state();
+    let g = SeqIdGen::default();
+    let grade = ColorGrade {
+        exposure: 0.5,
+        saturation: 1.2,
+        ..Default::default()
+    };
+    let res = apply(
+        &mut st,
+        EditCommand::SetColorGrade {
+            clip_ids: vec!["c".into()],
+            grade: Some(grade),
+        },
+        &g,
+    )
+    .unwrap();
+    assert!(res.changed);
+    assert_eq!(res.action_name, "Set Color Grade");
+    assert_eq!(res.timeline_version, 1);
+    assert_eq!(find_clip(&st, "c").color_grade, Some(grade));
+
+    // Undo restores the cleared grade.
+    apply(&mut st, EditCommand::Undo, &g).unwrap();
+    assert_eq!(find_clip(&st, "c").color_grade, None);
+}
+
+#[test]
+fn set_color_grade_none_clears() {
+    let mut st = one_clip_state();
+    let g = SeqIdGen::default();
+    // First set a grade...
+    apply(
+        &mut st,
+        EditCommand::SetColorGrade {
+            clip_ids: vec!["c".into()],
+            grade: Some(ColorGrade {
+                exposure: 1.0,
+                ..Default::default()
+            }),
+        },
+        &g,
+    )
+    .unwrap();
+    // ...then clear it.
+    let res = apply(
+        &mut st,
+        EditCommand::SetColorGrade {
+            clip_ids: vec!["c".into()],
+            grade: None,
+        },
+        &g,
+    )
+    .unwrap();
+    assert!(res.changed);
+    assert_eq!(find_clip(&st, "c").color_grade, None);
+}
+
+#[test]
+fn set_color_grade_no_op_when_unchanged() {
+    let mut st = one_clip_state();
+    let g = SeqIdGen::default();
+    // Setting None on a clip with no grade is a no-op (no version bump).
+    let res = apply(
+        &mut st,
+        EditCommand::SetColorGrade {
+            clip_ids: vec!["c".into()],
+            grade: None,
+        },
+        &g,
+    )
+    .unwrap();
+    assert!(!res.changed);
+    assert_eq!(st.version(), 0);
+}
+
+#[test]
+fn set_color_grade_batches_multiple_clips() {
+    let mut st = state(vec![video_track(
+        "v",
+        true,
+        vec![clip("a", 0, 30), clip("b", 30, 30)],
+    )]);
+    let g = SeqIdGen::default();
+    let grade = ColorGrade {
+        contrast: 0.3,
+        ..Default::default()
+    };
+    let res = apply(
+        &mut st,
+        EditCommand::SetColorGrade {
+            clip_ids: vec!["a".into(), "b".into()],
+            grade: Some(grade),
+        },
+        &g,
+    )
+    .unwrap();
+    assert!(res.changed);
+    assert_eq!(find_clip(&st, "a").color_grade, Some(grade));
+    assert_eq!(find_clip(&st, "b").color_grade, Some(grade));
+}
+
+#[test]
+fn set_chroma_key_applies_and_clears() {
+    let mut st = one_clip_state();
+    let g = SeqIdGen::default();
+    let key = ChromaKey::default();
+    let res = apply(
+        &mut st,
+        EditCommand::SetChromaKey {
+            clip_ids: vec!["c".into()],
+            chroma_key: Some(key),
+        },
+        &g,
+    )
+    .unwrap();
+    assert!(res.changed);
+    assert_eq!(res.action_name, "Set Chroma Key");
+    assert_eq!(find_clip(&st, "c").chroma_key, Some(key));
+
+    let res2 = apply(
+        &mut st,
+        EditCommand::SetChromaKey {
+            clip_ids: vec!["c".into()],
+            chroma_key: None,
+        },
+        &g,
+    )
+    .unwrap();
+    assert!(res2.changed);
+    assert_eq!(find_clip(&st, "c").chroma_key, None);
+}
+
+#[test]
+fn set_masks_replaces_list() {
+    let mut st = one_clip_state();
+    let g = SeqIdGen::default();
+    let masks = vec![Mask {
+        shape: MaskShape::Circle {
+            center: Point2::new(0.5, 0.5),
+            radius: Point2::new(0.3, 0.3),
+        },
+        feather: 0.05,
+        invert: false,
+    }];
+    let res = apply(
+        &mut st,
+        EditCommand::SetMasks {
+            clip_ids: vec!["c".into()],
+            masks: masks.clone(),
+        },
+        &g,
+    )
+    .unwrap();
+    assert!(res.changed);
+    assert_eq!(res.action_name, "Set Masks");
+    assert_eq!(find_clip(&st, "c").masks, masks);
+
+    // Replacing with an empty list clears all masks.
+    let res2 = apply(
+        &mut st,
+        EditCommand::SetMasks {
+            clip_ids: vec!["c".into()],
+            masks: vec![],
+        },
+        &g,
+    )
+    .unwrap();
+    assert!(res2.changed);
+    assert!(find_clip(&st, "c").masks.is_empty());
+}
+
+#[test]
+fn set_effects_replaces_chain() {
+    let mut st = one_clip_state();
+    let g = SeqIdGen::default();
+    let effects = vec![
+        Effect::new("gaussianBlur").with_param("radius", 4.0),
+        Effect::new("glow").with_param("intensity", 0.6),
+    ];
+    let res = apply(
+        &mut st,
+        EditCommand::SetEffects {
+            clip_ids: vec!["c".into()],
+            effects: effects.clone(),
+        },
+        &g,
+    )
+    .unwrap();
+    assert!(res.changed);
+    assert_eq!(res.action_name, "Set Effects");
+    assert_eq!(find_clip(&st, "c").effects, effects);
+}
+
+#[test]
+fn advanced_effect_commands_reject_empty_and_missing() {
+    let mut st = one_clip_state();
+    let g = SeqIdGen::default();
+    // Empty clip_ids -> Invalid.
+    assert!(matches!(
+        apply(
+            &mut st,
+            EditCommand::SetColorGrade {
+                clip_ids: vec![],
+                grade: None
+            },
+            &g
+        ),
+        Err(EditError::Invalid(_))
+    ));
+    // Unknown clip id -> Invalid, no version bump.
+    assert!(matches!(
+        apply(
+            &mut st,
+            EditCommand::SetEffects {
+                clip_ids: vec!["nope".into()],
+                effects: vec![Effect::new("blur")]
+            },
+            &g
+        ),
+        Err(EditError::Invalid(_))
+    ));
+    assert_eq!(st.version(), 0);
 }

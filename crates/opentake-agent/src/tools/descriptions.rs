@@ -85,6 +85,15 @@ pub fn description(tool: ToolName) -> &'static str {
         ToolName::ListWorkflows => "Lists installed workflow plugins as {id, name, description, videoType, active}. A workflow plugin packages editing conventions for one video type and, once activated with activate_workflow, injects guidance into your instructions and adds rule checks to your edits.",
 
         ToolName::DeactivateWorkflow => "Deactivates the currently active workflow plugin, if any. Removes its injected instructions and rule checks; auto-detection of video type and track roles resumes. Takes no arguments.",
+
+        // --- OpenTake A-tier shader effects (docs/ADVANCED-FEATURES.md A-layer) ---
+        ToolName::SetColorGrade => "Applies a high-end floating-point color grade to one or more clips in a single undoable action. The grade runs in linear light in a fixed order: exposure -> white balance -> lift/gamma/gain -> contrast -> saturation. All fields are optional and default to a no-op, so pass only what you want to change. exposure is in stops (0 = unchanged, +1 doubles brightness). temperature/tint are -1..1 white-balance trims (warm/magenta positive). lift/gamma/gain are per-channel {r,g,b} color wheels (lift offsets shadows, gamma is a midtone power, gain scales highlights). contrast pivots around mid-grey (0 = unchanged). saturation is a multiplier (1 = unchanged, 0 = greyscale). Pass clear:true to remove an existing grade. Applies to every clip in clipIds.",
+
+        ToolName::ChromaKey => "Keys out a solid-color background (green/blue screen) on one or more clips in one undoable action — pure shader math, no model. keyColor is the background color to remove as hex '#RRGGBB' (default green '#00FF00'). similarity sets how close a pixel's chroma must be to the key to become transparent; smoothness feathers the matte edge above that threshold; spill (0..1) suppresses color spill of the key hue on the retained subject. The matte is luma-independent, so shadows and highlights on the subject survive. Pass clear:true to remove keying. Applies to every clip in clipIds.",
+
+        ToolName::SetMask => "Sets the vector mask(s) on one or more clips in one undoable action — the masks generate a per-pixel alpha that hides everything outside them (intersection of all masks). Each mask is one of: a linear/gradient split (a line through a point with a normal), a circle/ellipse (center + per-axis radius), or a polygon/pen shape (a list of points). feather softens the edge in normalized canvas units; invert flips inside/outside. Coordinates are 0–1 normalized canvas space. Pass an empty masks array to clear all masks. Applies to every clip in clipIds.",
+
+        ToolName::ApplyEffect => "Sets the effect chain on one or more clips in one undoable action — an ordered list of named pixel effects, each a shader pass with named numeric parameters. Each effect is { name, params } where name selects the effect (e.g. 'gaussianBlur') and params are its scalar inputs (e.g. { radius: 4 }); pass enabled:false to keep a disabled effect in the chain. The list replaces the clip's current effects; pass an empty array to clear them. Applies to every clip in clipIds.",
     }
 }
 
@@ -433,7 +442,94 @@ pub fn input_schema(tool: ToolName) -> Value {
         ToolName::ListWorkflows => object(json!({}), &[]),
 
         ToolName::DeactivateWorkflow => object(json!({}), &[]),
+
+        // --- OpenTake A-tier shader effects ---
+        ToolName::SetColorGrade => object(json!({
+            "clipIds": {"type": "array", "items": {"type": "string"}, "description": "Clip IDs to grade. The grade applies to every clip in this list."},
+            "exposure": {"type": "number", "description": "Exposure in stops (0 = unchanged, +1 doubles linear brightness)."},
+            "temperature": {"type": "number", "description": "White-balance temperature -1..1 (warm positive)."},
+            "tint": {"type": "number", "description": "White-balance tint -1..1 (magenta positive, green negative)."},
+            "lift": rgb_schema("Per-channel shadow offset (additive; identity 0)."),
+            "gamma": rgb_schema("Per-channel midtone power (identity 1)."),
+            "gain": rgb_schema("Per-channel highlight gain (multiplicative; identity 1)."),
+            "contrast": {"type": "number", "description": "Contrast around mid-grey (0 = unchanged, positive raises contrast)."},
+            "saturation": {"type": "number", "description": "Saturation multiplier (1 = unchanged, 0 = greyscale)."},
+            "clear": {"type": "boolean", "description": "If true, removes the existing color grade from the clips (other fields ignored)."}
+        }), &["clipIds"]),
+
+        ToolName::ChromaKey => object(json!({
+            "clipIds": {"type": "array", "items": {"type": "string"}, "description": "Clip IDs to key. The key applies to every clip in this list."},
+            "keyColor": {"type": "string", "description": "Background color to remove, hex '#RRGGBB' (default green '#00FF00')."},
+            "similarity": {"type": "number", "description": "Chroma distance below which pixels are fully keyed (transparent). Larger removes more."},
+            "smoothness": {"type": "number", "description": "Feather width above similarity over which alpha ramps from keyed to opaque."},
+            "spill": {"type": "number", "description": "Spill suppression strength 0..1 (desaturates the key hue on the retained subject)."},
+            "clear": {"type": "boolean", "description": "If true, removes the existing chroma key from the clips (other fields ignored)."}
+        }), &["clipIds"]),
+
+        ToolName::SetMask => object(json!({
+            "clipIds": {"type": "array", "items": {"type": "string"}, "description": "Clip IDs to mask. The masks apply to every clip in this list."},
+            "masks": {
+                "type": "array",
+                "description": "Vector masks (intersected). Empty array clears all masks. Coordinates are 0–1 normalized canvas space.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "enum": ["linear", "circle", "poly"], "description": "Mask shape."},
+                        "point": point_schema("Linear masks: a point the dividing line passes through."),
+                        "normal": point_schema("Linear masks: the line's outward normal (covered side is +normal)."),
+                        "center": point_schema("Circle masks: ellipse center."),
+                        "radius": point_schema("Circle masks: per-axis radius (x, y)."),
+                        "points": {"type": "array", "description": "Poly masks: ordered polygon vertices (>= 3).", "items": point_schema("A polygon vertex.")},
+                        "feather": {"type": "number", "description": "Edge feather in normalized canvas units (0 = hard edge)."},
+                        "invert": {"type": "boolean", "description": "Invert coverage (mask out the inside instead of the outside)."}
+                    },
+                    "required": ["kind"]
+                }
+            }
+        }), &["clipIds", "masks"]),
+
+        ToolName::ApplyEffect => object(json!({
+            "clipIds": {"type": "array", "items": {"type": "string"}, "description": "Clip IDs to apply the effect chain to. Applies to every clip in this list."},
+            "effects": {
+                "type": "array",
+                "description": "Ordered effect chain. Replaces the clips' current effects; empty array clears them.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Effect identifier, e.g. 'gaussianBlur'."},
+                        "params": {"type": "object", "description": "Named numeric parameters for the effect, e.g. { \"radius\": 4 }.", "additionalProperties": {"type": "number"}},
+                        "enabled": {"type": "boolean", "description": "Whether the effect is active (default true)."}
+                    },
+                    "required": ["name"]
+                }
+            }
+        }), &["clipIds", "effects"]),
     }
+}
+
+/// A `{r, g, b}` object schema for color-grade wheel fields.
+fn rgb_schema(description: &str) -> Value {
+    json!({
+        "type": "object",
+        "description": description,
+        "properties": {
+            "r": {"type": "number"},
+            "g": {"type": "number"},
+            "b": {"type": "number"}
+        }
+    })
+}
+
+/// A `{x, y}` object schema for mask geometry points.
+fn point_schema(description: &str) -> Value {
+    json!({
+        "type": "object",
+        "description": description,
+        "properties": {
+            "x": {"type": "number"},
+            "y": {"type": "number"}
+        }
+    })
 }
 
 /// Assemble an object schema: `{type:object[, properties][, required]}`. Mirrors

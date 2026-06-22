@@ -12,6 +12,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::clip_type::ClipType;
+use crate::grade::{ChromaKey, ColorGrade, Effect, Mask};
 use crate::keyframe::{AnimPair, Interpolation, KeyframeTrack};
 use crate::text::TextStyle;
 use crate::transform::{Crop, Point, Transform};
@@ -119,6 +120,22 @@ pub struct Clip {
     pub crop_track: Option<KeyframeTrack<Crop>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume_track: Option<KeyframeTrack<f64>>,
+
+    // Advanced pixel-effect fields (A-tier; `docs/ADVANCED-FEATURES.md`). All
+    // `#[serde(default)]` + Option/Vec, so older projects (without these keys)
+    // decode unchanged, and an all-default clip omits them on the way out.
+    /// High-end floating-point color grade (linear-light chain). `None` = no grade.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_grade: Option<ColorGrade>,
+    /// Green/blue-screen chroma key. `None` = no keying.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chroma_key: Option<ChromaKey>,
+    /// Vector masks (intersected). Empty = no masking.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub masks: Vec<Mask>,
+    /// Generic named-effect chain. Empty = no effects.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
 }
 
 impl Clip {
@@ -157,6 +174,10 @@ impl Clip {
             rotation_track: None,
             crop_track: None,
             volume_track: None,
+            color_grade: None,
+            chroma_key: None,
+            masks: Vec::new(),
+            effects: Vec::new(),
         }
     }
 
@@ -905,5 +926,55 @@ mod tests {
         let json = serde_json::to_string(&c).unwrap();
         assert!(!json.contains("opacityTrack"));
         assert!(!json.contains("linkGroupId"));
+    }
+
+    // --- Advanced effect fields (A-tier) ---
+
+    #[test]
+    fn clip_default_omits_advanced_effect_fields() {
+        let c = base_clip();
+        let json = serde_json::to_string(&c).unwrap();
+        assert!(!json.contains("colorGrade"));
+        assert!(!json.contains("chromaKey"));
+        assert!(!json.contains("masks"));
+        assert!(!json.contains("effects"));
+    }
+
+    #[test]
+    fn clip_decodes_without_advanced_effect_fields() {
+        // An older project that predates these fields decodes fine.
+        let json = r#"{"id":"x","mediaRef":"m","startFrame":0,"durationFrames":12}"#;
+        let c: Clip = serde_json::from_str(json).unwrap();
+        assert!(c.color_grade.is_none());
+        assert!(c.chroma_key.is_none());
+        assert!(c.masks.is_empty());
+        assert!(c.effects.is_empty());
+    }
+
+    #[test]
+    fn clip_roundtrip_with_advanced_effect_fields() {
+        use crate::grade::{ChromaKey, ColorGrade, Effect, Mask, MaskShape, Point2};
+        let mut c = base_clip();
+        c.color_grade = Some(ColorGrade {
+            exposure: 0.5,
+            ..Default::default()
+        });
+        c.chroma_key = Some(ChromaKey::default());
+        c.masks = vec![Mask {
+            shape: MaskShape::Circle {
+                center: Point2::new(0.5, 0.5),
+                radius: Point2::new(0.3, 0.3),
+            },
+            feather: 0.05,
+            invert: false,
+        }];
+        c.effects = vec![Effect::new("gaussianBlur").with_param("radius", 4.0)];
+        let json = serde_json::to_string(&c).unwrap();
+        assert!(json.contains("\"colorGrade\""));
+        assert!(json.contains("\"chromaKey\""));
+        assert!(json.contains("\"masks\""));
+        assert!(json.contains("\"effects\""));
+        let back: Clip = serde_json::from_str(&json).unwrap();
+        assert_eq!(c, back);
     }
 }
