@@ -161,6 +161,9 @@ pub enum EditRequest {
     RemoveTracks {
         track_indexes: Vec<usize>,
     },
+    InsertTrack {
+        kind: ClipType,
+    },
     CreateFolder {
         name: String,
         parent_folder_id: Option<String>,
@@ -227,6 +230,7 @@ impl EditRequest {
             EditRequest::RemoveTracks { track_indexes } => {
                 EditCommand::RemoveTracks { track_indexes }
             }
+            EditRequest::InsertTrack { kind } => EditCommand::InsertTrack { kind },
             EditRequest::CreateFolder {
                 name,
                 parent_folder_id,

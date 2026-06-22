@@ -205,6 +205,11 @@ pub enum EditCommand {
     Unlink { clip_ids: Vec<String> },
     /// Remove tracks by index.
     RemoveTracks { track_indexes: Vec<usize> },
+    /// Insert a new empty track of `kind` (clamped into its zone). Lets the drop
+    /// flow create a track on demand when the timeline has no compatible one
+    /// (upstream `placeClip` / `add_clips` with omitted `trackIndex` →
+    /// `insertTrack`), so dragging media onto an empty timeline produces a clip.
+    InsertTrack { kind: ClipType },
     /// Create a media-library folder.
     CreateFolder {
         name: String,
@@ -292,6 +297,7 @@ pub fn apply(
         EditCommand::Link { clip_ids } => link(state, clip_ids, ids),
         EditCommand::Unlink { clip_ids } => unlink(state, clip_ids),
         EditCommand::RemoveTracks { track_indexes } => remove_tracks(state, track_indexes),
+        EditCommand::InsertTrack { kind } => insert_track_cmd(state, kind, ids),
         EditCommand::CreateFolder {
             name,
             parent_folder_id,
@@ -387,6 +393,25 @@ fn add_clips(
             }
             ops::prune_empty_tracks(&mut st.timeline);
             Ok(added)
+        },
+    )
+}
+
+fn insert_track_cmd(
+    state: &mut EditorState,
+    kind: ClipType,
+    ids: &dyn IdGen,
+) -> Result<EditResult, EditError> {
+    transact(
+        state,
+        "Insert Track",
+        |added| format!("Inserted track: {}", added.join(", ")),
+        |st| {
+            // Append at the end; `insert_track` clamps into the kind's zone
+            // (visual above audio).
+            let at = st.timeline.tracks.len();
+            let idx = ops::insert_track(&mut st.timeline, at, kind, ids);
+            Ok(vec![st.timeline.tracks[idx].id.clone()])
         },
     )
 }
@@ -1204,4 +1229,44 @@ fn track_display_label(timeline: &Timeline, track_index: usize) -> String {
         }
     }
     format!("{prefix}{n}")
+}
+
+#[cfg(test)]
+mod insert_track_tests {
+    use super::*;
+    use crate::id::SeqIdGen;
+    use opentake_domain::ClipType;
+
+    #[test]
+    fn insert_track_on_empty_timeline_creates_compatible_track() {
+        // The drop-onto-empty-timeline path: a brand-new project has no tracks,
+        // so `addMediaToTimeline` first issues `InsertTrack` before `AddClips`.
+        let mut state = EditorState::default();
+        let ids = SeqIdGen::default();
+        assert_eq!(state.timeline.tracks.len(), 0);
+
+        let res = apply(
+            &mut state,
+            EditCommand::InsertTrack {
+                kind: ClipType::Video,
+            },
+            &ids,
+        )
+        .unwrap();
+        assert!(res.changed);
+        assert_eq!(state.timeline.tracks.len(), 1);
+        assert_eq!(state.timeline.tracks[0].kind, ClipType::Video);
+
+        // A subsequent audio track clamps below the video zone.
+        apply(
+            &mut state,
+            EditCommand::InsertTrack {
+                kind: ClipType::Audio,
+            },
+            &ids,
+        )
+        .unwrap();
+        assert_eq!(state.timeline.tracks.len(), 2);
+        assert_eq!(state.timeline.tracks[1].kind, ClipType::Audio);
+    }
 }
