@@ -118,19 +118,19 @@ export async function importFolder(
 ): Promise<MediaList> {
   await ensureTauri();
   if (invokeImpl) return invokeImpl<MediaList>("import_folder", { path, recursive });
-  return { items: [] };
+  return { items: [], folders: [] };
 }
 
 export async function importMedia(paths: string[]): Promise<MediaList> {
   await ensureTauri();
   if (invokeImpl) return invokeImpl<MediaList>("import_media", { paths });
-  return { items: [] };
+  return { items: [], folders: [] };
 }
 
 export async function getMedia(): Promise<MediaList> {
   await ensureTauri();
   if (invokeImpl) return invokeImpl<MediaList>("get_media");
-  return { items: [] };
+  return { items: [], folders: [] };
 }
 
 // MARK: - Timeline composite preview (#47)

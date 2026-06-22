@@ -211,10 +211,20 @@ export interface MediaItem {
   hasAudio: boolean;
   path?: string | null;
   thumbnail?: string | null;
+  /** Library folder this asset lives in (`null`/absent = root). */
+  folderId?: string | null;
+}
+
+/** A media-library folder (flat list; nest via `parentFolderId`). */
+export interface MediaFolder {
+  id: string;
+  name: string;
+  parentFolderId?: string | null;
 }
 
 export interface MediaList {
   items: MediaItem[];
+  folders: MediaFolder[];
 }
 
 // MARK: - BYOK secret store (mirror of src-tauri SecretStatus)

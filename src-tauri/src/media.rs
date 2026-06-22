@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::State;
 
-use opentake_core::{importable_clip_type, AppCore, ProbedMedia};
+use opentake_core::{importable_clip_type, AppCore, EditCommand, ProbedMedia};
 use opentake_domain::{ClipType, MediaManifestEntry, MediaSource};
 use opentake_media::MediaEngine;
 
@@ -78,6 +78,8 @@ pub struct MediaItemDto {
     pub path: Option<String>,
     /// On-disk thumbnail path, or `None` to render a type placeholder.
     pub thumbnail: Option<String>,
+    /// Library folder this asset lives in (`None` = root), for the folder view.
+    pub folder_id: Option<String>,
 }
 
 impl MediaItemDto {
@@ -99,8 +101,19 @@ impl MediaItemDto {
             has_audio: entry.has_audio.unwrap_or(false),
             path,
             thumbnail: None,
+            folder_id: entry.folder_id.clone(),
         }
     }
+}
+
+/// A media-library folder for the panel's folder tree (mirror of
+/// [`opentake_domain::MediaFolder`]).
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaFolderDto {
+    pub id: String,
+    pub name: String,
+    pub parent_folder_id: Option<String>,
 }
 
 /// The media panel's catalog: every manifest entry as a [`MediaItemDto`].
@@ -109,6 +122,8 @@ impl MediaItemDto {
 pub struct MediaListDto {
     /// All media items, in manifest order.
     pub items: Vec<MediaItemDto>,
+    /// All library folders (flat list; nest via `parentFolderId`).
+    pub folders: Vec<MediaFolderDto>,
 }
 
 impl MediaListDto {
@@ -120,6 +135,15 @@ impl MediaListDto {
                 .entries
                 .iter()
                 .map(MediaItemDto::from_entry)
+                .collect(),
+            folders: manifest
+                .folders
+                .iter()
+                .map(|f| MediaFolderDto {
+                    id: f.id.clone(),
+                    name: f.name.clone(),
+                    parent_folder_id: f.parent_folder_id.clone(),
+                })
                 .collect(),
         }
     }
@@ -162,13 +186,15 @@ fn import_one(core: &AppCore, engine: &MediaEngine, path: &Path) -> Option<Media
         .ok()
 }
 
-/// `import_folder`: scan `path` for white-listed media files and import each,
-/// returning the updated catalog.
+/// `import_folder`: bring a local directory into the library.
 ///
-/// Top-level scan by default; set `recursive = true` to walk subdirectories
-/// (upstream mirrors the tree into media folders — here we flatten into the one
-/// manifest, since folder mirroring is a separate `CreateFolder` concern).
-/// Entries are visited in case-insensitive name order for deterministic ids.
+/// - `recursive = false` (default): flat — import the top-level media files into
+///   the library root (no folders), as before.
+/// - `recursive = true`: **mirror the directory tree** (剪映-style, #49) — create
+///   a library folder for the selected directory and each nested subdirectory,
+///   and import each file into the folder mirroring its on-disk location. Empty
+///   directories still create their folder. Files are visited in
+///   case-insensitive name order so ids mint deterministically.
 #[tauri::command]
 pub fn import_folder(
     core: State<'_, AppCore>,
@@ -180,14 +206,99 @@ pub fn import_folder(
     if !root.is_dir() {
         return Err(format!("not a directory: {path}"));
     }
-    let recursive = recursive.unwrap_or(false);
     let engine = media.engine();
 
-    let files = collect_media_files(&root, recursive);
-    for file in &files {
-        let _ = import_one(&core, engine, file);
+    if recursive.unwrap_or(false) {
+        mirror_dir(&core, engine, &root, None);
+    } else {
+        for file in &collect_media_files(&root, false) {
+            let _ = import_one(&core, engine, file);
+        }
     }
     Ok(MediaListDto::from_core(&core))
+}
+
+/// Recursively mirror `dir` into the library: create a folder for `dir` (nested
+/// under `parent_folder_id`), import its direct media files into that folder, and
+/// recurse into subdirectories. Hidden entries (dot-prefixed) are skipped.
+fn mirror_dir(core: &AppCore, engine: &MediaEngine, dir: &Path, parent_folder_id: Option<String>) {
+    let folder_id = create_folder(core, &dir_name(dir), parent_folder_id);
+
+    // Partition this directory's visible entries into media files + subdirs,
+    // both in case-insensitive name order.
+    let (files, subdirs) = list_dir(dir);
+
+    let mut imported_ids = Vec::new();
+    for file in &files {
+        if let Some(entry) = import_one(core, engine, file) {
+            imported_ids.push(entry.id);
+        }
+    }
+    if let Some(fid) = &folder_id {
+        if !imported_ids.is_empty() {
+            let _ = core.apply(EditCommand::MoveToFolder {
+                asset_ids: imported_ids,
+                folder_id: Some(fid.clone()),
+            });
+        }
+    }
+
+    for sub in subdirs {
+        mirror_dir(core, engine, &sub, folder_id.clone());
+    }
+}
+
+/// Create a library folder, returning its new id (or `None` if the core rejected
+/// it — e.g. an empty name, which `dir_name` avoids).
+fn create_folder(core: &AppCore, name: &str, parent_folder_id: Option<String>) -> Option<String> {
+    core.apply(EditCommand::CreateFolder {
+        name: name.to_string(),
+        parent_folder_id,
+    })
+    .ok()
+    .and_then(|res| res.affected_clip_ids.into_iter().next())
+}
+
+/// Directory display name (its last path component), falling back to "folder".
+fn dir_name(dir: &Path) -> String {
+    dir.file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "folder".to_string())
+}
+
+/// One directory's visible media files + subdirectories, each sorted by
+/// case-insensitive name (skipping dot-prefixed entries).
+fn list_dir(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut files = Vec::new();
+    let mut subdirs = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return (files, subdirs);
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let hidden = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| s.starts_with('.'))
+            .unwrap_or(false);
+        if hidden {
+            continue;
+        }
+        if path.is_dir() {
+            subdirs.push(path);
+        } else if importable_clip_type(&path).is_some() {
+            files.push(path);
+        }
+    }
+    let by_name = |a: &PathBuf, b: &PathBuf| {
+        let an = a.file_name().map(|s| s.to_string_lossy().to_lowercase());
+        let bn = b.file_name().map(|s| s.to_string_lossy().to_lowercase());
+        an.cmp(&bn)
+    };
+    files.sort_by(by_name);
+    subdirs.sort_by(by_name);
+    (files, subdirs)
 }
 
 /// `import_media`: import an explicit list of file paths, returning the updated
@@ -308,11 +419,67 @@ mod tests {
             has_audio: false,
             path: Some("/p.png".into()),
             thumbnail: None,
+            folder_id: None,
         };
         let json = serde_json::to_string(&dto).unwrap();
         assert!(json.contains("\"hasAudio\""));
         assert!(json.contains("\"type\":\"image\""));
         assert!(json.contains("\"thumbnail\":null"));
+        assert!(json.contains("\"folderId\":null"));
+    }
+
+    #[test]
+    fn import_folder_recursive_mirrors_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Trip");
+        fs::create_dir(&root).unwrap();
+        touch(&root.join("a.mp4"));
+        let day1 = root.join("Day1");
+        fs::create_dir(&day1).unwrap();
+        touch(&day1.join("b.mov"));
+        touch(&day1.join("note.txt")); // unsupported → skipped
+        fs::create_dir(root.join("Empty")).unwrap(); // empty subfolder still mirrors
+
+        let core = AppCore::new();
+        let engine = engine_for(tmp.path());
+        mirror_dir(&core, &engine, &root, None);
+
+        let m = core.media();
+        // Folders: Trip (root) + Day1 + Empty, nested under Trip.
+        assert_eq!(m.folders.len(), 3, "{:?}", m.folders);
+        let trip = m.folders.iter().find(|f| f.name == "Trip").unwrap();
+        let day1f = m.folders.iter().find(|f| f.name == "Day1").unwrap();
+        let empty = m.folders.iter().find(|f| f.name == "Empty").unwrap();
+        assert!(trip.parent_folder_id.is_none());
+        assert_eq!(day1f.parent_folder_id.as_deref(), Some(trip.id.as_str()));
+        assert_eq!(empty.parent_folder_id.as_deref(), Some(trip.id.as_str()));
+
+        // Entries: a.mp4 in Trip, b.mov in Day1; the .txt was skipped.
+        assert_eq!(m.entries.len(), 2, "{:?}", m.entries);
+        let a = m.entries.iter().find(|e| e.name == "a").unwrap();
+        let b = m.entries.iter().find(|e| e.name == "b").unwrap();
+        assert_eq!(a.folder_id.as_deref(), Some(trip.id.as_str()));
+        assert_eq!(b.folder_id.as_deref(), Some(day1f.id.as_str()));
+    }
+
+    #[test]
+    fn media_list_dto_projects_folders() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Lib");
+        fs::create_dir(&root).unwrap();
+        touch(&root.join("x.png"));
+        let core = AppCore::new();
+        let engine = engine_for(tmp.path());
+        mirror_dir(&core, &engine, &root, None);
+
+        let dto = MediaListDto::from_core(&core);
+        assert_eq!(dto.folders.len(), 1);
+        assert_eq!(dto.folders[0].name, "Lib");
+        assert_eq!(dto.items.len(), 1);
+        assert_eq!(
+            dto.items[0].folder_id.as_deref(),
+            Some(dto.folders[0].id.as_str())
+        );
     }
 
     #[test]
