@@ -95,6 +95,16 @@ impl ClipEntry {
     }
 }
 
+/// One id + new-name pair for [`EditCommand::RenameMedia`] /
+/// [`EditCommand::RenameFolder`]. A single rename is a one-element vec, so the
+/// batch and single forms apply in the same undo group (1:1 with upstream's
+/// `withUndoGroup`).
+#[derive(Clone, Debug)]
+pub struct RenameEntry {
+    pub id: String,
+    pub name: String,
+}
+
 /// A text overlay entry for [`EditCommand::AddTexts`]. The transform is supplied
 /// fully resolved (text measurement is a media/UI concern this leaf doesn't do).
 #[derive(Clone, Debug)]
@@ -220,6 +230,16 @@ pub enum EditCommand {
         asset_ids: Vec<String>,
         folder_id: Option<String>,
     },
+    /// Rename media assets (single = one-element vec). Library-only; clip
+    /// references are unaffected.
+    RenameMedia { entries: Vec<RenameEntry> },
+    /// Rename folders (single = one-element vec).
+    RenameFolder { entries: Vec<RenameEntry> },
+    /// Delete media assets and cascade-remove any clips referencing them.
+    DeleteMedia { asset_ids: Vec<String> },
+    /// Delete folders recursively (subfolders + their assets) and cascade-remove
+    /// clips referencing any deleted asset.
+    DeleteFolder { folder_ids: Vec<String> },
     /// Undo the last committed command.
     Undo,
     /// Redo the last undone command.
@@ -306,6 +326,10 @@ pub fn apply(
             asset_ids,
             folder_id,
         } => move_to_folder(state, asset_ids, folder_id),
+        EditCommand::RenameMedia { entries } => rename_media(state, entries),
+        EditCommand::RenameFolder { entries } => rename_folder(state, entries),
+        EditCommand::DeleteMedia { asset_ids } => delete_media(state, asset_ids),
+        EditCommand::DeleteFolder { folder_ids } => delete_folder(state, folder_ids),
     }
 }
 
@@ -1126,6 +1150,139 @@ fn move_to_folder(
                 &asset_ids.iter().cloned().collect(),
                 folder_id.clone(),
             );
+            Ok(Vec::new())
+        },
+    )
+}
+
+fn rename_media(
+    state: &mut EditorState,
+    entries: Vec<RenameEntry>,
+) -> Result<EditResult, EditError> {
+    if entries.is_empty() {
+        return Err(EditError::Invalid(
+            "rename_media: no entries to rename".into(),
+        ));
+    }
+    // Atomic: every target must exist before any rename is applied.
+    for e in &entries {
+        if !state.manifest.entries.iter().any(|m| m.id == e.id) {
+            return Err(EditError::Invalid(format!(
+                "Media asset not found: {}",
+                e.id
+            )));
+        }
+    }
+    let single = (entries.len() == 1).then(|| (entries[0].id.clone(), entries[0].name.clone()));
+    let n = entries.len();
+    let action = if n == 1 {
+        "Rename Asset"
+    } else {
+        "Rename Assets"
+    };
+    transact(
+        state,
+        action,
+        move |_| match &single {
+            Some((id, name)) => format!("Renamed {id} to '{name}'"),
+            None => format!("Renamed {n} media asset(s)"),
+        },
+        |st| {
+            for e in &entries {
+                ops::rename_media(&mut st.manifest, &e.id, e.name.clone());
+            }
+            Ok(Vec::new())
+        },
+    )
+}
+
+fn rename_folder(
+    state: &mut EditorState,
+    entries: Vec<RenameEntry>,
+) -> Result<EditResult, EditError> {
+    if entries.is_empty() {
+        return Err(EditError::Invalid(
+            "rename_folder: no entries to rename".into(),
+        ));
+    }
+    for e in &entries {
+        if !state.manifest.folders.iter().any(|f| f.id == e.id) {
+            return Err(EditError::Invalid(format!("folderId not found: {}", e.id)));
+        }
+    }
+    let single = (entries.len() == 1).then(|| (entries[0].id.clone(), entries[0].name.clone()));
+    let n = entries.len();
+    let action = if n == 1 {
+        "Rename Folder"
+    } else {
+        "Rename Folders"
+    };
+    transact(
+        state,
+        action,
+        move |_| match &single {
+            Some((id, name)) => format!("Renamed folder {id} to '{name}'"),
+            None => format!("Renamed {n} folder(s)"),
+        },
+        |st| {
+            for e in &entries {
+                ops::rename_folder(&mut st.manifest, &e.id, e.name.clone());
+            }
+            Ok(Vec::new())
+        },
+    )
+}
+
+fn delete_media(state: &mut EditorState, asset_ids: Vec<String>) -> Result<EditResult, EditError> {
+    if asset_ids.is_empty() {
+        return Err(EditError::Invalid("assetIds is required".into()));
+    }
+    for id in &asset_ids {
+        if !state.manifest.entries.iter().any(|m| m.id == *id) {
+            return Err(EditError::Invalid(format!("Media asset not found: {id}")));
+        }
+    }
+    let n = asset_ids.len();
+    transact(
+        state,
+        "Delete Media",
+        move |_| {
+            format!(
+                "Deleted {n} asset(s). Any clips referencing them were removed from the timeline."
+            )
+        },
+        |st| {
+            let set: HashSet<String> = asset_ids.iter().cloned().collect();
+            ops::delete_media(&mut st.timeline, &mut st.manifest, &set);
+            Ok(Vec::new())
+        },
+    )
+}
+
+fn delete_folder(
+    state: &mut EditorState,
+    folder_ids: Vec<String>,
+) -> Result<EditResult, EditError> {
+    if folder_ids.is_empty() {
+        return Err(EditError::Invalid("folderIds is required".into()));
+    }
+    for id in &folder_ids {
+        if !state.manifest.folders.iter().any(|f| f.id == *id) {
+            return Err(EditError::Invalid(format!("folderId not found: {id}")));
+        }
+    }
+    let n = folder_ids.len();
+    transact(
+        state,
+        "Delete Folder",
+        move |_| {
+            format!(
+            "Deleted {n} folder(s) with their contents. Any clips referencing deleted assets were removed from the timeline."
+        )
+        },
+        |st| {
+            let set: HashSet<String> = folder_ids.iter().cloned().collect();
+            ops::delete_folder(&mut st.timeline, &mut st.manifest, &set);
             Ok(Vec::new())
         },
     )

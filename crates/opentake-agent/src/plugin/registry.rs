@@ -132,6 +132,26 @@ pub fn validate_manifest(m: &PluginManifest) -> Result<Vec<String>, PluginError>
     Ok(warnings)
 }
 
+// MARK: - Built-in (bundled) workflows
+
+/// The bundled "audio-first" default workflow, compiled into the binary so the
+/// default editing Skills are always available without any filesystem seeding.
+const AUDIO_FIRST_MANIFEST: &str = include_str!("builtin/audio-first/plugin.json");
+const AUDIO_FIRST_INSTRUCTIONS: &str = include_str!("builtin/audio-first/instructions.md");
+
+/// All workflow plugins shipped with OpenTake. Compiled in via `include_str!`
+/// (no filesystem dependency), so user-authored plugins from a scanned directory
+/// layer on top of these. An unparseable built-in is skipped rather than
+/// panicking (it is covered by a test, so this only guards future edits).
+pub fn builtin_plugins() -> Vec<LoadedPlugin> {
+    [(AUDIO_FIRST_MANIFEST, AUDIO_FIRST_INSTRUCTIONS)]
+        .into_iter()
+        .filter_map(|(manifest, instructions)| {
+            PluginRegistry::load_from_strings(manifest, instructions, "<builtin>").ok()
+        })
+        .collect()
+}
+
 /// The plugin registry: all installed plugins + the active id.
 #[derive(Debug, Default)]
 pub struct PluginRegistry {
@@ -142,6 +162,17 @@ pub struct PluginRegistry {
 impl PluginRegistry {
     pub fn new() -> Self {
         PluginRegistry::default()
+    }
+
+    /// A registry pre-loaded with the bundled built-in workflows (e.g. the
+    /// default audio-first Skill). Production wiring starts here and then layers
+    /// user-authored plugins on top via [`PluginRegistry::register`] / `scan`.
+    pub fn with_builtins() -> Self {
+        let mut registry = PluginRegistry::new();
+        for plugin in builtin_plugins() {
+            registry.register(plugin);
+        }
+        registry
     }
 
     /// Load a single plugin directory: read `plugin.json` + `instructions.md`,
@@ -366,6 +397,33 @@ mod tests {
         assert_eq!(p.id(), "disk-p");
         assert_eq!(p.instructions_md, "# Disk guide");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn builtin_audio_first_loads_and_validates() {
+        let plugins = builtin_plugins();
+        let af = plugins
+            .iter()
+            .find(|p| p.id() == "opentake-workflow-audio-first")
+            .expect("bundled audio-first workflow must load");
+        // No fatal validation error (it loaded) and no warnings (all tools/roles
+        // in the manifest are recognized).
+        assert!(
+            af.warnings.is_empty(),
+            "audio-first manifest has warnings: {:?}",
+            af.warnings
+        );
+        assert_eq!(af.manifest.workflow.approach, "audio_driven");
+        // The instructions are non-empty so activation surfaces real guidance.
+        assert!(af.instructions_md.contains("先铺音频"));
+    }
+
+    #[test]
+    fn with_builtins_activates_audio_first() {
+        let mut reg = PluginRegistry::with_builtins();
+        assert!(reg.active().is_none());
+        let active = reg.activate("opentake-workflow-audio-first").unwrap();
+        assert_eq!(active.name(), "音频先入工作流 (Audio-First)");
     }
 
     #[test]

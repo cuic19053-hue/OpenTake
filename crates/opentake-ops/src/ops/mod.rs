@@ -14,7 +14,9 @@ pub mod tracks;
 pub mod trim;
 
 pub use clear_region::clear_region;
-pub use folders::{create_folder, move_to_folder};
+pub use folders::{
+    create_folder, delete_folder, delete_media, move_to_folder, rename_folder, rename_media,
+};
 pub use linking::{
     expand_to_link_group, link_index, linked_partner_ids, partner_moves,
     timing_propagation_partners,

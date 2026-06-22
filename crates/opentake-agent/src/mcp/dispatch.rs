@@ -25,7 +25,7 @@ use opentake_domain::{
 };
 use opentake_ops::{
     ClipEntry, ClipMove, ClipProperties, EditCommand, FrameRange, KeyframePayload,
-    KeyframeProperty, TextEntry,
+    KeyframeProperty, RenameEntry, TextEntry,
 };
 use serde_json::Value;
 
@@ -154,9 +154,23 @@ impl Dispatcher {
             ToolName::ChromaKey => self.chroma_key(args),
             ToolName::SetMask => self.set_mask(args),
             ToolName::ApplyEffect => self.apply_effect(args),
+            ToolName::RenameMedia => self.rename_media(args),
+            ToolName::RenameFolder => self.rename_folder(args),
+            ToolName::DeleteMedia => self.delete_media(args),
+            ToolName::DeleteFolder => self.delete_folder(args),
             ToolName::Undo => self.undo(),
 
+            // --- Workflow plugins / Skills (OpenTake addition; backed by the
+            //     PluginRegistry the dispatcher holds) ---
+            ToolName::ListWorkflows => self.list_workflows(),
+            ToolName::ActivateWorkflow => self.activate_workflow(args),
+            ToolName::DeactivateWorkflow => self.deactivate_workflow(),
+
             // --- Not yet implementable in this phase (honest stubs) ---
+            // Media reads (inspect/transcript/search) + import need the media
+            // backend via a widened CoreHandle; generation/upscale need the async
+            // GenClient + BYOK auth; inspect_timeline needs the render+text path;
+            // motion graphics is #34. Each is wired in a later batch.
             ToolName::InspectMedia
             | ToolName::GetTranscript
             | ToolName::InspectTimeline
@@ -168,13 +182,6 @@ impl Dispatcher {
             | ToolName::UpscaleMedia
             | ToolName::ImportMedia
             | ToolName::AddCaptions
-            | ToolName::RenameMedia
-            | ToolName::RenameFolder
-            | ToolName::DeleteMedia
-            | ToolName::DeleteFolder
-            | ToolName::ActivateWorkflow
-            | ToolName::ListWorkflows
-            | ToolName::DeactivateWorkflow
             | ToolName::AddMotionGraphic
             | ToolName::EditMotionGraphic => Ok(ToolResult::error(format!(
                 "{}: not yet implemented",
@@ -481,6 +488,150 @@ impl Dispatcher {
             effects,
         })?;
         Ok(ToolResult::ok(res.summary))
+    }
+
+    fn rename_media(&self, args: &Value) -> Result<ToolResult, ToolError> {
+        let a: RenameMediaArgs = decode_tool_args(args, "")?;
+        let entries = if let Some(raw) = a.entries {
+            let mut out = Vec::with_capacity(raw.len());
+            for (i, v) in raw.iter().enumerate() {
+                let e: RenameMediaEntry = decode_tool_args(v, &format!("entries[{i}]"))?;
+                out.push(RenameEntry {
+                    id: e.media_ref,
+                    name: e.name,
+                });
+            }
+            out
+        } else {
+            let id = a
+                .media_ref
+                .ok_or_else(|| ToolError::new("arguments: missing required field 'mediaRef'"))?;
+            let name = a
+                .name
+                .ok_or_else(|| ToolError::new("arguments: missing required field 'name'"))?;
+            vec![RenameEntry { id, name }]
+        };
+        if entries.is_empty() {
+            return Err(ToolError::new("rename_media: nothing to rename"));
+        }
+        let res = self.apply(EditCommand::RenameMedia { entries })?;
+        Ok(ToolResult::ok(res.summary))
+    }
+
+    fn rename_folder(&self, args: &Value) -> Result<ToolResult, ToolError> {
+        let a: RenameFolderArgs = decode_tool_args(args, "")?;
+        let entries = if let Some(raw) = a.entries {
+            let mut out = Vec::with_capacity(raw.len());
+            for (i, v) in raw.iter().enumerate() {
+                let e: RenameFolderEntry = decode_tool_args(v, &format!("entries[{i}]"))?;
+                out.push(RenameEntry {
+                    id: e.folder_id,
+                    name: e.name,
+                });
+            }
+            out
+        } else {
+            let id = a
+                .folder_id
+                .ok_or_else(|| ToolError::new("arguments: missing required field 'folderId'"))?;
+            let name = a
+                .name
+                .ok_or_else(|| ToolError::new("arguments: missing required field 'name'"))?;
+            vec![RenameEntry { id, name }]
+        };
+        if entries.is_empty() {
+            return Err(ToolError::new("rename_folder: nothing to rename"));
+        }
+        let res = self.apply(EditCommand::RenameFolder { entries })?;
+        Ok(ToolResult::ok(res.summary))
+    }
+
+    fn delete_media(&self, args: &Value) -> Result<ToolResult, ToolError> {
+        let a: DeleteMediaArgs = decode_tool_args(args, "")?;
+        if a.asset_ids.is_empty() {
+            return Err(ToolError::new("arguments: 'assetIds' must not be empty"));
+        }
+        let res = self.apply(EditCommand::DeleteMedia {
+            asset_ids: a.asset_ids,
+        })?;
+        Ok(ToolResult::ok(res.summary))
+    }
+
+    fn delete_folder(&self, args: &Value) -> Result<ToolResult, ToolError> {
+        let a: DeleteFolderArgs = decode_tool_args(args, "")?;
+        if a.folder_ids.is_empty() {
+            return Err(ToolError::new("arguments: 'folderIds' must not be empty"));
+        }
+        let res = self.apply(EditCommand::DeleteFolder {
+            folder_ids: a.folder_ids,
+        })?;
+        Ok(ToolResult::ok(res.summary))
+    }
+
+    // MARK: - Workflow plugin (Skills) tools
+
+    /// `list_workflows`: the installed plugins as `{id, name, description,
+    /// videoType, active}` (per the tool's declared output shape).
+    fn list_workflows(&self) -> Result<ToolResult, ToolError> {
+        let guard = self
+            .registry
+            .read()
+            .map_err(|_| ToolError::new("workflow registry lock poisoned"))?;
+        let active = guard.active().map(|p| p.id().to_string());
+        let arr: Vec<Value> = guard
+            .installed()
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "id": p.manifest.id,
+                    "name": p.manifest.name,
+                    "description": p.manifest.description,
+                    "videoType": p.manifest.video_type.primary,
+                    "active": active.as_deref() == Some(p.id()),
+                })
+            })
+            .collect();
+        Ok(ToolResult::ok(Value::Array(arr).to_string()))
+    }
+
+    /// `activate_workflow`: activate a plugin by id. Returns a confirmation plus
+    /// the plugin's `instructions.md`, so the agent immediately receives the
+    /// skill's guidance; subsequent tool results also carry its rules/overrides
+    /// via the context signal.
+    fn activate_workflow(&self, args: &Value) -> Result<ToolResult, ToolError> {
+        let a: ActivateWorkflowArgs = decode_tool_args(args, "")?;
+        let (name, instructions) = {
+            let mut guard = self
+                .registry
+                .write()
+                .map_err(|_| ToolError::new("workflow registry lock poisoned"))?;
+            let plugin = guard
+                .activate(&a.workflow_id)
+                .map_err(|e| ToolError::new(e.to_string()))?;
+            (plugin.name().to_string(), plugin.instructions_md.clone())
+        };
+        let mut text = format!("Activated workflow '{name}'.");
+        if !instructions.trim().is_empty() {
+            text.push_str("\n\n");
+            text.push_str(instructions.trim());
+        }
+        Ok(ToolResult::ok(text))
+    }
+
+    /// `deactivate_workflow`: clear the active plugin (no-op if none active).
+    fn deactivate_workflow(&self) -> Result<ToolResult, ToolError> {
+        let mut guard = self
+            .registry
+            .write()
+            .map_err(|_| ToolError::new("workflow registry lock poisoned"))?;
+        let had = guard.active().is_some();
+        guard.deactivate();
+        drop(guard);
+        Ok(ToolResult::ok(if had {
+            "Deactivated the active workflow."
+        } else {
+            "No active workflow to deactivate."
+        }))
     }
 
     fn undo(&self) -> Result<ToolResult, ToolError> {
@@ -1034,15 +1185,50 @@ mod tests {
         assert!(v.get("folders").is_some());
     }
 
-    // Suppress dead-code warnings for the asset injection helper kept for clarity.
-    #[allow(dead_code)]
-    fn _entry() -> MediaManifestEntry {
+    // MARK: - Manifest-backed fixtures (rename / delete / workflow tools)
+
+    use opentake_domain::Clip;
+    use opentake_ops::{apply as ops_apply, EditorState, SeqIdGen};
+    use std::sync::Mutex;
+
+    /// A [`CoreHandle`] over a directly-built [`EditorState`], so tests can seed
+    /// manifest entries/folders the public AppCore surface can't inject.
+    struct StateHandle {
+        state: Mutex<EditorState>,
+    }
+
+    impl StateHandle {
+        fn new(timeline: Timeline, manifest: MediaManifest) -> Self {
+            StateHandle {
+                state: Mutex::new(EditorState::new(timeline, manifest)),
+            }
+        }
+    }
+
+    impl CoreHandle for StateHandle {
+        fn timeline(&self) -> Timeline {
+            self.state.lock().unwrap().timeline.clone()
+        }
+        fn media(&self) -> MediaManifest {
+            self.state.lock().unwrap().manifest.clone()
+        }
+        fn apply(&self, cmd: EditCommand) -> anyhow::Result<EditResult> {
+            let ids = SeqIdGen::new("t-");
+            let mut st = self.state.lock().unwrap();
+            ops_apply(&mut st, cmd, &ids).map_err(|e| anyhow::anyhow!("{e}"))
+        }
+        fn project_dir(&self) -> Option<PathBuf> {
+            None
+        }
+    }
+
+    fn entry(id: &str, name: &str) -> MediaManifestEntry {
         MediaManifestEntry {
-            id: "asset-1".into(),
-            name: "a".into(),
+            id: id.into(),
+            name: name.into(),
             kind: ClipType::Video,
             source: MediaSource::External {
-                absolute_path: "/x.mp4".into(),
+                absolute_path: format!("/{id}.mp4"),
             },
             duration: 1.0,
             generation_input: None,
@@ -1054,5 +1240,157 @@ mod tests {
             cached_remote_url: None,
             cached_remote_url_expires_at: None,
         }
+    }
+
+    /// One video track with `clip-1` referencing `asset-1`, and `asset-1` in the
+    /// manifest named "Old Name".
+    fn seeded_handle() -> Arc<StateHandle> {
+        let mut tl = Timeline::new();
+        let mut t = Track::new("track-1", ClipType::Video);
+        t.clips.push(Clip::new("clip-1", "asset-1", 0, 30));
+        tl.tracks.push(t);
+        let mut m = MediaManifest::new();
+        m.entries.push(entry("asset-1", "Old Name"));
+        Arc::new(StateHandle::new(tl, m))
+    }
+
+    #[test]
+    fn rename_media_updates_manifest_name() {
+        let h = seeded_handle();
+        let d = dispatcher_with(h.clone());
+        let r = d.dispatch(
+            "rename_media",
+            serde_json::json!({"mediaRef": "asset-1", "name": "Hero Shot"}),
+        );
+        assert!(!r.is_error, "{}", r.text_joined());
+        assert!(r.text_joined().contains("Hero Shot"), "{}", r.text_joined());
+        assert_eq!(h.media().entries[0].name, "Hero Shot");
+    }
+
+    #[test]
+    fn delete_media_cascades_referencing_clip() {
+        let h = seeded_handle();
+        let d = dispatcher_with(h.clone());
+        let r = d.dispatch("delete_media", serde_json::json!({"assetIds": ["asset-1"]}));
+        assert!(!r.is_error, "{}", r.text_joined());
+        assert!(
+            r.text_joined().contains("Deleted 1 asset"),
+            "{}",
+            r.text_joined()
+        );
+        assert!(h.media().entries.is_empty());
+        // The only clip referenced the deleted asset → removed, track pruned.
+        assert!(h.timeline().tracks.is_empty());
+    }
+
+    #[test]
+    fn delete_media_unknown_id_errors() {
+        let d = dispatcher_with(seeded_handle());
+        let r = d.dispatch("delete_media", serde_json::json!({"assetIds": ["ghost"]}));
+        assert!(r.is_error);
+        assert!(r.text_joined().contains("not found"), "{}", r.text_joined());
+    }
+
+    // MARK: - Workflow plugin (Skills) tools
+
+    fn manifest_json(id: &str, name: &str, desc: &str, vtype: &str) -> String {
+        format!(
+            r#"{{"schema_version":"1.0","id":"{id}","name":"{name}","description":"{desc}","video_type":{{"primary":"{vtype}"}},"workflow":{{"stages":[{{"id":"s0","name":"S0","order":0}}]}}}}"#
+        )
+    }
+
+    fn dispatcher_with_plugins() -> Dispatcher {
+        let mut reg = PluginRegistry::new();
+        reg.register(
+            PluginRegistry::load_from_strings(
+                &manifest_json("audio-first", "Audio-First", "Lay audio first.", "vlog"),
+                "# Audio-First\nLay your audio bed before cutting picture.",
+                ".",
+            )
+            .unwrap(),
+        );
+        reg.register(
+            PluginRegistry::load_from_strings(
+                &manifest_json(
+                    "talking-head",
+                    "Talking Head",
+                    "TH workflow",
+                    "talking_head",
+                ),
+                "",
+                ".",
+            )
+            .unwrap(),
+        );
+        Dispatcher::new(Arc::new(TestHandle::new()), Arc::new(RwLock::new(reg)))
+    }
+
+    /// The first text block (the tool's own JSON, before any context_signal).
+    fn first_text(r: &ToolResult) -> String {
+        match &r.content[0] {
+            crate::tools::result::Block::Text { text } => text.clone(),
+            _ => panic!("expected a text block"),
+        }
+    }
+
+    #[test]
+    fn list_workflows_reports_installed_and_active_flag() {
+        let d = dispatcher_with_plugins();
+        let r = d.dispatch("list_workflows", serde_json::json!({}));
+        assert!(!r.is_error, "{}", r.text_joined());
+        let v: Value = serde_json::from_str(&first_text(&r)).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        let af = arr.iter().find(|p| p["id"] == "audio-first").unwrap();
+        assert_eq!(af["name"], "Audio-First");
+        assert_eq!(af["description"], "Lay audio first.");
+        assert_eq!(af["videoType"], "vlog");
+        assert_eq!(af["active"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn activate_workflow_returns_instructions_and_marks_active() {
+        let d = dispatcher_with_plugins();
+        let r = d.dispatch(
+            "activate_workflow",
+            serde_json::json!({"workflowId": "audio-first"}),
+        );
+        assert!(!r.is_error, "{}", r.text_joined());
+        let t = r.text_joined();
+        assert!(t.contains("Activated workflow 'Audio-First'"), "{t}");
+        assert!(t.contains("Lay your audio bed"), "{t}");
+
+        let l = d.dispatch("list_workflows", serde_json::json!({}));
+        let v: Value = serde_json::from_str(&first_text(&l)).unwrap();
+        let af = v
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == "audio-first")
+            .unwrap()
+            .clone();
+        assert_eq!(af["active"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn activate_unknown_workflow_errors() {
+        let d = dispatcher_with_plugins();
+        let r = d.dispatch(
+            "activate_workflow",
+            serde_json::json!({"workflowId": "ghost"}),
+        );
+        assert!(r.is_error);
+    }
+
+    #[test]
+    fn deactivate_workflow_clears_active() {
+        let d = dispatcher_with_plugins();
+        d.dispatch(
+            "activate_workflow",
+            serde_json::json!({"workflowId": "audio-first"}),
+        );
+        let r = d.dispatch("deactivate_workflow", serde_json::json!({}));
+        assert!(!r.is_error, "{}", r.text_joined());
+        assert!(r.text_joined().contains("Deactivated"));
     }
 }
