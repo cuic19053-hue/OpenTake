@@ -12,7 +12,10 @@ mod secret;
 
 use opentake_core::{AppCore, CoreEvent};
 use opentake_media::MediaEngine;
-use tauri::{Emitter, Manager, RunEvent, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
+// `RunEvent::Reopen` (Dock click) is a macOS-only variant.
+#[cfg(target_os = "macos")]
+use tauri::RunEvent;
 
 use crate::media::MediaState;
 
@@ -93,15 +96,18 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
+        .run(|_app, _event| {
             // Dock-reopen with no visible window (we hide on close) shows it again.
+            // `RunEvent::Reopen` only exists on macOS; other platforms rely on the
+            // tray / OS to re-surface the window (a cross-platform follow-up).
+            #[cfg(target_os = "macos")]
             if let RunEvent::Reopen {
                 has_visible_windows,
                 ..
-            } = event
+            } = _event
             {
                 if !has_visible_windows {
-                    if let Some(win) = app.get_webview_window("main") {
+                    if let Some(win) = _app.get_webview_window("main") {
                         let _ = win.show();
                         let _ = win.set_focus();
                     }
