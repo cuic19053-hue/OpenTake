@@ -413,17 +413,24 @@ function MediaCard({ item }: { item: MediaItem }) {
           overflow: "hidden",
         }}
       >
+        {/* `draggable={false}` on the inner media so the card's custom drag
+            (MEDIA_DND_TYPE) wins instead of a native image/video drag. The
+            `#t=0.1` fragment makes the WebView paint the first frame as a video
+            poster (a metadata-only <video> otherwise stays blank). */}
         {thumb && item.type === "image" ? (
           <img
             src={thumb}
             alt={item.name}
+            draggable={false}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : thumb && item.type === "video" ? (
           <video
-            src={thumb}
+            src={`${thumb}#t=0.1`}
             muted
+            playsInline
             preload="metadata"
+            draggable={false}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
