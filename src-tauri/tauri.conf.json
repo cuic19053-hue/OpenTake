@@ -6,16 +6,22 @@
   "build": {
     "frontendDist": "../web/dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "pnpm -C web dev",
-    "beforeBuildCommand": "pnpm -C web build"
+    "beforeDevCommand": {
+      "cwd": "..",
+      "script": "pnpm -C web dev"
+    },
+    "beforeBuildCommand": {
+      "cwd": "..",
+      "script": "pnpm -C web build"
+    }
   },
   "app": {
     "windows": [
       {
         "title": "OpenTake",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 800,
+        "width": 1600,
+        "height": 1000,
+        "minWidth": 960,
         "minHeight": 600
       }
     ],
@@ -27,7 +33,11 @@
     "active": true,
     "targets": "all",
     "icon": [
-      "icons/icon.png"
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
     ]
   }
 }

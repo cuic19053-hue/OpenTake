@@ -9,11 +9,8 @@ members = [
     "crates/opentake-agent",
     "crates/opentake-gen",
     "crates/opentake-core",
+    "src-tauri",
 ]
-# src-tauri is intentionally NOT a workspace member yet (Phase 0 scaffold).
-# Pulling the full Tauri 2 dependency tree is heavy and not required to prove
-# the 8 core crates + web build. See src-tauri/README.md for the TODO.
-exclude = ["src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
