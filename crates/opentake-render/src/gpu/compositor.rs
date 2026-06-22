@@ -82,12 +82,7 @@ fn grade_blocks(g: &ColorGrade) -> ([f32; 4], [f32; 4], [f32; 4], [f32; 4]) {
     let wb = g.white_balance_gain();
     let LiftGammaGain { lift, gamma, gain } = g.lift_gamma_gain;
     (
-        [
-            g.exposure as f32,
-            wb.r as f32,
-            wb.g as f32,
-            wb.b as f32,
-        ],
+        [g.exposure as f32, wb.r as f32, wb.g as f32, wb.b as f32],
         [
             lift.r as f32,
             lift.g as f32,

@@ -134,7 +134,10 @@ fn color_grade_zero_saturation_greyscales() {
     // Greyscale -> R == G == B (within a small rounding tolerance from the
     // sRGB<->linear round-trip and 8-bit quantization).
     let (r, g, b) = (c[0] as i32, c[1] as i32, c[2] as i32);
-    assert!((r - g).abs() <= 3 && (g - b).abs() <= 3, "expected grey, got {c:?}");
+    assert!(
+        (r - g).abs() <= 3 && (g - b).abs() <= 3,
+        "expected grey, got {c:?}"
+    );
     assert_eq!(c[3], 255, "opaque");
 }
 
@@ -273,5 +276,8 @@ fn inverted_mask_clips_out_center() {
     );
     // Corner is now kept -> white.
     let corner = pixel_at(&frame, 0, 0);
-    assert!(corner[0] > 200, "corner kept by inverted mask, got {corner:?}");
+    assert!(
+        corner[0] > 200,
+        "corner kept by inverted mask, got {corner:?}"
+    );
 }

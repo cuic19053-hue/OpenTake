@@ -126,9 +126,7 @@ fn make_clip_plan(
         // Advanced pixel-effect inputs, copied verbatim from the clip (frame-
         // independent this round). Drop a color grade that is the identity so the
         // compositor can skip it cheaply.
-        color_grade: clip
-            .color_grade
-            .filter(|g| !g.is_identity()),
+        color_grade: clip.color_grade.filter(|g| !g.is_identity()),
         chroma_key: clip.chroma_key,
         masks: clip.masks.clone(),
         effects: clip.effects.clone(),

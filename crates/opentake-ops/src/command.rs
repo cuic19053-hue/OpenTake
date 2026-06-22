@@ -277,9 +277,7 @@ pub fn apply(
             property,
             payload,
         } => set_keyframes(state, clip_id, property, payload),
-        EditCommand::SetColorGrade { clip_ids, grade } => {
-            set_color_grade(state, clip_ids, grade)
-        }
+        EditCommand::SetColorGrade { clip_ids, grade } => set_color_grade(state, clip_ids, grade),
         EditCommand::SetChromaKey {
             clip_ids,
             chroma_key,

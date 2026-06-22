@@ -353,7 +353,11 @@ impl ChromaKey {
         let (pcb, pcr) = chroma_cb_cr(r, g, b);
         let dist = ((pcb - kcb).powi(2) + (pcr - kcr).powi(2)).sqrt();
         // dist <= similarity -> 0 (keyed); dist >= similarity+smoothness -> 1.
-        smoothstep01(self.similarity, self.similarity + self.smoothness.max(0.0), dist)
+        smoothstep01(
+            self.similarity,
+            self.similarity + self.smoothness.max(0.0),
+            dist,
+        )
     }
 
     /// Spill-suppressed color for a retained pixel: pulls the key-hue channel down
@@ -369,15 +373,27 @@ impl ChromaKey {
         // Green key (the common case): suppress green above the r/b average.
         if kg >= kr && kg >= kb {
             let avg = (r + b) * 0.5;
-            let ng = if g > avg { avg + (g - avg) * (1.0 - k) } else { g };
+            let ng = if g > avg {
+                avg + (g - avg) * (1.0 - k)
+            } else {
+                g
+            };
             (r, ng, b)
         } else if kb >= kr && kb >= kg {
             let avg = (r + g) * 0.5;
-            let nb = if b > avg { avg + (b - avg) * (1.0 - k) } else { b };
+            let nb = if b > avg {
+                avg + (b - avg) * (1.0 - k)
+            } else {
+                b
+            };
             (r, g, nb)
         } else {
             let avg = (g + b) * 0.5;
-            let nr = if r > avg { avg + (r - avg) * (1.0 - k) } else { r };
+            let nr = if r > avg {
+                avg + (r - avg) * (1.0 - k)
+            } else {
+                r
+            };
             (nr, g, b)
         }
     }

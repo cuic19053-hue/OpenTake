@@ -355,8 +355,14 @@ pub struct ChromaKeyArgs {
     pub clear: Option<bool>,
 }
 impl ToolArgs for ChromaKeyArgs {
-    const ALLOWED_KEYS: &'static [&'static str] =
-        &["clipIds", "keyColor", "similarity", "smoothness", "spill", "clear"];
+    const ALLOWED_KEYS: &'static [&'static str] = &[
+        "clipIds",
+        "keyColor",
+        "similarity",
+        "smoothness",
+        "spill",
+        "clear",
+    ];
 }
 
 // --- set_mask ---
@@ -956,7 +962,11 @@ mod tests {
     fn set_color_grade_rejects_unknown_field() {
         let v = serde_json::json!({"clipIds": ["a"], "exposre": 1.0}); // typo
         let err = decode_tool_args::<SetColorGradeArgs>(&v, "").unwrap_err();
-        assert!(err.message.contains("unknown field(s) 'exposre'"), "{}", err.message);
+        assert!(
+            err.message.contains("unknown field(s) 'exposre'"),
+            "{}",
+            err.message
+        );
     }
 
     #[test]
@@ -996,7 +1006,8 @@ mod tests {
         let v = serde_json::json!({"kind": "circle", "radius": {"x": 0.3}, "bogus": 1});
         let err = decode_tool_args::<MaskArg>(&v, "masks[0]").unwrap_err();
         assert!(
-            err.message.starts_with("masks[0]: unknown field(s) 'bogus'"),
+            err.message
+                .starts_with("masks[0]: unknown field(s) 'bogus'"),
             "{}",
             err.message
         );
@@ -1019,6 +1030,9 @@ mod tests {
     fn apply_effect_entry_requires_name() {
         let v = serde_json::json!({"params": {"radius": 2.0}});
         let err = decode_tool_args::<EffectArg>(&v, "effects[0]").unwrap_err();
-        assert_eq!(err.message, "effects[0].name: missing required field 'name'");
+        assert_eq!(
+            err.message,
+            "effects[0].name: missing required field 'name'"
+        );
     }
 }
