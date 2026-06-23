@@ -1,25 +1,20 @@
 /**
- * Title bar (SPEC §2.8), a 1:1 copy of the upstream TitleBarView. Leading: the
- * Agent-panel toggle (aiGradient bubble icon). Trailing: the Export button.
- * (UpdateBadge/Avatar belong to a separate issue.) The bubble switches between
- * the hollow (`bubble.left`) and filled (`bubble.left.fill`) glyph with the
- * Agent panel's visibility, mirroring the upstream symbol swap.
+ * Title bar (SPEC §2.8). Leading: Home (return to launcher). Trailing:
+ * Settings + Export. (UpdateBadge/Avatar belong to a separate issue.)
  *
- * Layout presets and panel-visibility toggles live in the §2.9 View menu
- * (ViewMenu), not here — the upstream title bar carries neither. The View-menu
- * trigger is the only added affordance, acting as the in-app menu entry point
- * for an environment without a native menu bar.
+ * The Agent panel is toggled from the §2.9 View menu (ViewMenu) and the
+ * keyboard shortcut — the dedicated title-bar toggle button was removed by
+ * request. Layout presets and panel-visibility toggles also live in the View
+ * menu, the in-app menu entry point for an environment without a native menu bar.
  */
 
-import { MessageSquare, Upload, Home, Settings as SettingsIcon } from "lucide-react";
+import { Upload, Home, Settings as SettingsIcon } from "lucide-react";
 import { Icon } from "../ui/Icon";
 import { ViewMenu } from "./ViewMenu";
 import { useEditorUiStore } from "../../store/uiStore";
 import { useT } from "../../i18n";
 
 export function TitleBar() {
-  const agentVisible = useEditorUiStore((s) => s.agentPanelVisible);
-  const toggleAgent = useEditorUiStore((s) => s.toggleAgentPanel);
   const setView = useEditorUiStore((s) => s.setView);
   const t = useT();
 
@@ -55,36 +50,7 @@ export function TitleBar() {
         <Icon icon={Home} size={13} />
       </button>
 
-      {/* Agent toggle (aiGradient icon, hollow/filled by visibility). */}
-      <button
-        title={t("title.toggleAgent")}
-        aria-label={t("title.toggleAgent")}
-        aria-pressed={agentVisible}
-        onClick={toggleAgent}
-        className="hover-area"
-        style={{
-          width: 26,
-          height: 26,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: agentVisible ? 1 : 0.55,
-        }}
-      >
-        <span
-          style={{
-            background: "var(--ai-gradient)",
-            WebkitBackgroundClip: "text",
-            backgroundClip: "text",
-            color: "transparent",
-            display: "inline-flex",
-          }}
-        >
-          <Icon icon={MessageSquare} size={13} fill={agentVisible ? "currentColor" : "none"} />
-        </span>
-      </button>
-
-      {/* §2.9 menu entry point (hosts Layout presets + panel visibility). */}
+      {/* §2.9 menu entry point (hosts Layout presets + Agent panel + visibility). */}
       <ViewMenu />
 
       <div style={{ flex: 1 }} />
