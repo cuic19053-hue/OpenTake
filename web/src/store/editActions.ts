@@ -15,7 +15,9 @@ import type {
   ClipPropertiesReq,
   ClipType,
   MediaItem,
+  TextEntryReq,
   Timeline,
+  Transform,
   TrimEditReq,
 } from "../lib/types";
 
@@ -193,4 +195,62 @@ async function addMediaToTimelineInner(item: MediaItem): Promise<void> {
   // position from a mirror that already includes this clip. (Browser mode
   // already refreshed inside `applyAndRefresh` — guard to avoid a double fetch.)
   if (isTauri) await forceRefresh();
+}
+
+// MARK: - Text tool (Toolbar "T" button, SPEC §4)
+
+/** Default text clip duration: 3 seconds at the timeline's fps. */
+const DEFAULT_TEXT_SECONDS = 3;
+
+/** Default transform for a newly created text clip (centered, unit size). */
+const DEFAULT_TEXT_TRANSFORM: Transform = {
+  centerX: 0.5,
+  centerY: 0.5,
+  width: 1,
+  height: 1,
+  rotation: 0,
+  flipHorizontal: false,
+  flipVertical: false,
+};
+
+/** Find the first visual track (video/image/text/lottie) index, or null. */
+function firstVisualTrackIndex(timeline: Timeline): number | null {
+  for (let i = 0; i < timeline.tracks.length; i++) {
+    const t = timeline.tracks[i].type;
+    if (t === "video" || t === "image" || t === "text" || t === "lottie") return i;
+  }
+  return null;
+}
+
+/** Add a text clip at the playhead on the first visual track (creating one if
+ *  none exists). Selects the new clip afterwards so the Inspector opens its
+ *  Text tab. Used by the Toolbar "T" button. */
+export async function addTextClip() {
+  const ui = useEditorUiStore.getState();
+  const startFrame = ui.activeFrame;
+  let timeline = useProjectStore.getState().timeline;
+
+  let trackIndex = firstVisualTrackIndex(timeline);
+  if (trackIndex === null) {
+    await insertTrack("video");
+    await forceRefresh();
+    timeline = useProjectStore.getState().timeline;
+    trackIndex = firstVisualTrackIndex(timeline);
+    if (trackIndex === null) return;
+  }
+
+  const durationFrames = Math.max(1, Math.round(DEFAULT_TEXT_SECONDS * timeline.fps));
+  const entry: TextEntryReq = {
+    trackIndex,
+    startFrame,
+    durationFrames,
+    content: "",
+    textStyle: {},
+    transform: DEFAULT_TEXT_TRANSFORM,
+  };
+
+  const res = await applyAndRefresh({ type: "addTexts", entries: [entry] });
+  if (res && res.affectedClipIds.length > 0) {
+    ui.selectClips(new Set(res.affectedClipIds));
+  }
 }

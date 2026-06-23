@@ -70,6 +70,7 @@ const zh: Dict = {
   "inspector.section.transform": "变换",
   "inspector.section.playback": "播放",
   "inspector.section.format": "格式",
+  "inspector.section.text": "文本内容",
   "inspector.field.volume": "音量",
   "inspector.field.scale": "缩放",
   "inspector.field.rotation": "旋转",
@@ -80,6 +81,7 @@ const zh: Dict = {
   "inspector.field.aspectRatio": "宽高比",
   "inspector.field.duration": "时长",
   "inspector.keyframes": "关键帧",
+  "inspector.textPlaceholder": "输入文本…",
 
   // Toolbar
   "toolbar.undo": "撤销 (⌘Z)",
@@ -211,6 +213,7 @@ const en: Dict = {
   "inspector.section.transform": "Transform",
   "inspector.section.playback": "Playback",
   "inspector.section.format": "Format",
+  "inspector.section.text": "Text Content",
   "inspector.field.volume": "Volume",
   "inspector.field.scale": "Scale",
   "inspector.field.rotation": "Rotation",
@@ -221,6 +224,7 @@ const en: Dict = {
   "inspector.field.aspectRatio": "Aspect Ratio",
   "inspector.field.duration": "Duration",
   "inspector.keyframes": "Keyframes",
+  "inspector.textPlaceholder": "Enter text…",
 
   "toolbar.undo": "Undo (⌘Z)",
   "toolbar.redo": "Redo (⇧⌘Z)",

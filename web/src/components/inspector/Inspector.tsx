@@ -9,6 +9,7 @@ import { Info, SlidersHorizontal, Diamond } from "lucide-react";
 import { PanelHeaderBar } from "../ui/PanelShell";
 import { Icon } from "../ui/Icon";
 import { ScrubbableNumberField } from "./ScrubbableNumberField";
+import { TextTab } from "./TextTab";
 import { useProjectStore } from "../../store/projectStore";
 import { useEditorUiStore } from "../../store/uiStore";
 import * as edit from "../../store/editActions";
@@ -190,7 +191,9 @@ function ClipInspector({
       )}
 
       <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-lg)" }}>
-        {activeTab === "audio" ? (
+        {activeTab === "text" ? (
+          <TextTab clip={clip} t={t} />
+        ) : activeTab === "audio" ? (
           <section>
             <SectionHeader label={t("inspector.section.levels")} />
             <Row label={t("inspector.field.volume")}>

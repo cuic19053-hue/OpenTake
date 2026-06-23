@@ -143,7 +143,7 @@ export function Toolbar() {
       <Divider />
 
       {/* Add text */}
-      <GlyphButton glyph="T" title={t("toolbar.addText")} serif fontSize={17} />
+      <GlyphButton glyph="T" title={t("toolbar.addText")} serif fontSize={17} onClick={() => edit.addTextClip()} />
 
       <div style={{ flex: 1 }} />
 
