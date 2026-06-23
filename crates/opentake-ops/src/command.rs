@@ -2001,7 +2001,10 @@ mod keyframe_edit_tests {
     fn stamp_keyframe_creates_track_when_absent() {
         let (mut state, ids, clip_id) = make_state_with_clip();
         // No opacity track initially.
-        assert!(state.find_clip(&clip_id).unwrap().opacity_track.is_none());
+        let loc = state.find_clip(&clip_id).unwrap();
+        assert!(state.timeline.tracks[loc.track_index].clips[loc.clip_index]
+            .opacity_track
+            .is_none());
 
         let res = apply(
             &mut state,
