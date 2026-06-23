@@ -2,8 +2,8 @@
  * Timeline container (SPEC §5). Owns the scroll area, the content + ruler
  * canvases, the fixed track-header column, and the playhead/snap overlays, plus
  * the pointer-gesture decision tree (SPEC §5.8, §9): scrub, select, move, trim,
- * razor split, marquee, and the trackpad wheel model (pinch/Option zoom,
- * two-finger pan, Cmd horizontal scroll).
+ * razor split, marquee, and the CapCut/剪映 wheel model (pinch or Cmd/Ctrl
+ * zoom, Option horizontal scroll, bare/two-finger pan).
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -218,14 +218,17 @@ export function TimelineContainer() {
     [scrollLeft, scrollTop],
   );
 
-  // --- Wheel (CapCut/剪映 trackpad model) ---
-  //   pinch (ctrlKey, set by the browser on trackpad pinch) OR Option (altKey,
-  //     for mouse-wheel users) → cursor-anchored zoom;
-  //   Cmd (metaKey) → horizontal pan (a mouse wheel scrolls the timeline);
-  //   bare two-finger scroll → pan both axes (deltaX horizontal, deltaY vertical).
+  // --- Wheel: 1:1 with CapCut/剪映's scroll-wheel & trackpad model ---
+  //   • pinch (ctrlKey, set by the browser on a trackpad pinch) OR Cmd (Mac) /
+  //     Ctrl (Win) + scroll → cursor-anchored ZOOM (剪映: "Ctrl/Cmd + 滚轮 缩放，
+  //     以当前位置为原点").
+  //   • Option (altKey) + scroll → HORIZONTAL scroll (剪映: "Alt + 滚轮 = 左右").
+  //   • bare scroll / two-finger swipe → pan (剪映: "滚轮 = 上下"); on a trackpad
+  //     deltaX also pans horizontally, so a two-finger swipe moves the timeline
+  //     in any direction.
   const onWheel = useCallback(
     (e: WheelEvent) => {
-      if (e.ctrlKey || e.altKey) {
+      if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
         const { docX } = toDoc(e);
         const anchorFrame = docX / zoomScale;
@@ -239,13 +242,16 @@ export function TimelineContainer() {
         const newDocX = anchorFrame * newScale;
         const viewX = docX - scrollLeft;
         setScroll(Math.max(0, newDocX - viewX), scrollTop);
-      } else if (e.metaKey) {
+      } else if (e.altKey) {
         e.preventDefault();
-        // Mouse-wheel horizontal scroll: deltaX takes priority over deltaY.
-        setScroll(Math.max(0, scrollLeft + (e.deltaX || e.deltaY) * ZOOM.panSpeed), scrollTop);
+        // Option + scroll = horizontal (剪映 Alt+滚轮). A mouse wheel only has
+        // deltaY, so fall back to it when there's no deltaX.
+        const maxLeft = Math.max(0, docWidth - viewport.width);
+        const dx = (e.deltaX || e.deltaY) * ZOOM.panSpeed;
+        setScroll(Math.max(0, Math.min(maxLeft, scrollLeft + dx)), scrollTop);
       } else {
-        // Bare two-finger scroll pans the timeline (剪映-style): horizontal swipe
-        // → scrollLeft, vertical → scrollTop. preventDefault stops the macOS
+        // Bare scroll / two-finger swipe pans the timeline: vertical (剪映 上下)
+        // plus horizontal on a trackpad. preventDefault stops the macOS
         // two-finger swipe from triggering browser back/forward navigation.
         e.preventDefault();
         const maxLeft = Math.max(0, docWidth - viewport.width);

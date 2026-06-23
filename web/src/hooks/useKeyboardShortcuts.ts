@@ -10,6 +10,10 @@ import { useEditorUiStore } from "../store/uiStore";
 import { useProjectStore } from "../store/projectStore";
 import * as edit from "../store/editActions";
 import { saveCurrentProject } from "../store/projectActions";
+import { ZOOM } from "../lib/theme";
+
+/** Per-keypress zoom step for ⌘+ / ⌘- (剪映: Cmd + +/-). */
+const ZOOM_KEY_STEP = 1.3;
 
 function isTextEntry(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -33,6 +37,18 @@ export function useKeyboardShortcuts() {
         return m;
       })();
 
+      // Zoom the timeline by `factor`, keeping the playhead stationary on screen
+      // (剪映 zooms around the current position). Uses existing store actions.
+      const zoomBy = (factor: number) => {
+        const old = ui.zoomScale;
+        const next = Math.max(ui.minZoomScale, Math.min(ZOOM.max, old * factor));
+        if (next === old) return;
+        ui.setZoomScale(next);
+        // newScrollLeft keeps the playhead's screen x fixed: f*next - (f*old - left).
+        const f = ui.activeFrame;
+        ui.setScroll(Math.max(0, f * (next - old) + ui.scrollLeft), ui.scrollTop);
+      };
+
       // Cmd-modified actions.
       if (mod) {
         switch (e.code) {
@@ -40,6 +56,17 @@ export function useKeyboardShortcuts() {
             e.preventDefault();
             if (e.shiftKey) edit.redo();
             else edit.undo();
+            return;
+          // ⌘+ / ⌘- zoom in/out (剪映 Cmd + +/-). "Equal" is the +/= key.
+          case "Equal":
+          case "NumpadAdd":
+            e.preventDefault();
+            zoomBy(ZOOM_KEY_STEP);
+            return;
+          case "Minus":
+          case "NumpadSubtract":
+            e.preventDefault();
+            zoomBy(1 / ZOOM_KEY_STEP);
             return;
           case "KeyK":
             e.preventDefault();
@@ -103,6 +130,14 @@ export function useKeyboardShortcuts() {
           return;
         case "KeyV":
           ui.setToolMode("pointer");
+          return;
+        case "KeyZ":
+          // ⇧Z fits the whole timeline to the window (剪映 Shift+Z 适配窗口).
+          if (e.shiftKey) {
+            e.preventDefault();
+            ui.setZoomScale(ui.minZoomScale);
+            ui.setScroll(0, ui.scrollTop);
+          }
           return;
         case "Backquote": {
           e.preventDefault();
