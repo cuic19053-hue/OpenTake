@@ -17,7 +17,7 @@
 - **F3 剪映式顶栏**(`b89fc56`):8 主标签(素材/音频可用,文本/贴纸/特效/转场/字幕/智能包裹置灰);素材/音频→导入/我的;星标收藏 localStorage(`favorites.ts`);保留 missing/relink。`MediaTabBar.tsx`+`favorites.ts`。
 - **F4 时间线导出**(`b89fc56`):`crates/opentake-project/src/fcpxml.rs` 导出 **XMEML 4(FCP7 XML)**——1:1 端口上游 `Export/XMLExporter.swift`(Premiere 不读 FCPXML,故选 XMEML);`export_fcpxml` 命令+api+TitleBar 导出按钮(saveDialog .xml);`Clip::keyframe_frames`(带测试)。13 fcpxml 测试。
 
-**遗留/后续:** ① 推送 + 真机目视确认(B1暂停/B2波形需原生构建,Dock 拦截 computer-use)。② `fcpxml.rs` 1489 行 > 800 规约,建议拆分。③ `export_fcpxml` 名实不符(产物是 XMEML),可考虑改名 `export_xml`。④ Q/W(现=修剪入出点,Premiere习惯)与 ⌘K 分割 跟剪映(Q/W=删左右、⌘B/B切割)不同,待用户定夺。⑤ 星标"我的"现为 localStorage,跨项目全局库=#37 待做。⑥ 剪映 draft(`com.lveditor.draft`)导出未做(格式易碎,留后续)。
+**遗留/后续:** ① 推送 + 真机目视确认(B1暂停/B2波形需原生构建,Dock 拦截 computer-use)。② `fcpxml.rs` 1489 行 > 800 规约,建议拆分。③ `export_fcpxml` 名实不符(产物是 XMEML),可考虑改名 `export_xml`。④ Q/W(现=修剪入出点,Premiere习惯)与 ⌘K 分割 跟剪映(Q/W=删左右、⌘B/B切割)不同,待用户定夺。⑤ 星标"我的"前端仍为 localStorage(`favorites.ts`);全局库**后端已并入 main**(#37-A 存储层 #104 + #37-B 命令层 #106),**前端 #37-C/#56 未做**——收藏尚未迁到后端 `library_favorite`/`library_list`。⑥ 剪映 draft(`com.lveditor.draft`)导出未做(格式易碎,留后续)。
 
 ## 历史(第一轮,分支 `feat/realtime-timeline-playback`/PR #81,CI 绿)
 真实播放、波形端口、trim/move 正确性、fade smoothstep、razor 吸附、轨道编号、⇧⌫ ripple、预览左下角根因修复、split 无选区、链接 co-trim。**PR #81 已超"播放"范围,合并时改标题/拆分。**
@@ -61,7 +61,7 @@
 - **#48 片段编辑收尾**:Delete/切割/片段右键菜单/Inspector 三段式/Toolbar 接线。
 - **剩余 MCP 工具 stub**:媒体读取(inspect_media/get_transcript/search_media)+ import_media 需**拓宽 CoreHandle 接 MediaEngine**(注意:CoreHandle 现仅持 AppCore,MediaEngine 在 MediaState,需架构扩展);`generate_*`/upscale 需异步 GenClient + BYOK;add_captions 需端上 whisper。
 - **#49 项目内文件夹导入 + 嵌套文件夹浏览(剪映式)**:文件夹图标/双击进入/面包屑/拖出;DTO 加 folderId+folders;import_folder 镜像目录树。用户很想要。
-- **#37 全局可复用素材库 + 收藏**(跨项目/分类/音效库/全库可见)。
+- **#37 全局可复用素材库 + 收藏**(跨项目/分类/音效库/全库可见):**后端已并入 main** —— 存储层 `crates/opentake-media/src/library.rs`(#37-A/#54,PR #104,copy-on-favorite + SHA-256 内容寻址去重 + JSON manifest 原子写)+ Tauri 命令层 `src-tauri/src/library.rs`(#37-B/#55,PR #106,7 命令 list/favorite/unfavorite/categorize/rename/delete/import_to_project)。**剩前端 #37-C/#56**(库视图 UI + 收藏从 localStorage 迁到后端 `library_favorite`/`library_list`)尚无 PR。follow-up:`library.rs:322` remove() 静默吞 remove_file 错误,建议补 `tracing::warn!`;`library_delete` 与 `library_unfavorite` 现为纯别名,建议语义区分。
 - **#39 提取音频星标 · #40 设置多分页+主页 1:1 · #34 motion dispatch · #27–30 进阶 B/C/D/E · #22–25 #12 follow-up · #35 bundle id 改名**。
 - 冲突注意:我(#47/#48)动 opentake-render/opentake-media(decode/FrameProvider)/src-tauri(composite_frame、autosave)/web Preview+timeline;#36 动 agent+src-tauri(server 段);#37/#49 动 opentake-media(library/folders)+web media。**src-tauri/lib.rs、opentake-media 是多方交汇点,合并按 issue 顺序、各自小段、勤 rebase。**
 

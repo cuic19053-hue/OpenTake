@@ -22,6 +22,8 @@
 - **做**:`.opentake` 目录包读写(serde + `#[serde(default)]` 容错,与上游 schema 对齐);媒体导入(本地/URL/bytes,扩展名白名单);ffmpeg 抽缩略图 + sprite 网格缓存(逻辑照搬 `MediaVisualCache`);Symphonia 出波形(归一化 0..1 缓存)。
 - **验证**:能打开上游导出的工程文件并还原 timeline;导入媒体后缩略图/波形/时长/分辨率正确;`.opentake` 往返序列化无损。
 
+> 注:**跨项目全局素材库(#37,独立于「每项目媒体」)后端已并入 main** —— 存储层 `crates/opentake-media/src/library.rs`(copy-on-favorite + SHA-256 内容寻址去重 + JSON manifest 原子写,#104)+ Tauri 命令层 `src-tauri/src/library.rs`(7 命令,#106)。前端(#37-C / #56)未做。该子系统上游 palmier-pro 无对应,不要求 1:1。注意区分:**#37 = 跨项目全局库;#49/#91 = 每项目媒体与文件夹浏览**。
+
 ## Phase 3 — 🔴 wgpu 帧合成器 PoC(项目命门,尽早验证)
 对应 `opentake-render`。**这一步成败决定整条 Rust core 路线。**
 - **做**:
