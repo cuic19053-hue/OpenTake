@@ -163,6 +163,24 @@ export async function compositeFrame(
   return null;
 }
 
+/**
+ * Normalized waveform buckets (`0 = loud, 1 = silence`) for a media asset,
+ * computed/cached by the Rust media engine (`get_waveform`). The array spans the
+ * WHOLE source; the timeline renderer maps the clip's trimmed sub-range into it.
+ * Returns null outside Tauri (no media engine).
+ */
+export async function getWaveform(mediaRef: string): Promise<number[] | null> {
+  await ensureTauri();
+  if (invokeImpl) {
+    try {
+      return await invokeImpl<number[]>("get_waveform", { mediaRef });
+    } catch {
+      return null; // no audio track / decode failure: caller renders nothing
+    }
+  }
+  return null;
+}
+
 // MARK: - BYOK secret store
 //
 // API keys are stored in the OS keychain by the Rust backend (`secret_*`

@@ -28,6 +28,9 @@ export interface PaintState {
   /** Visible viewport size (CSS px). */
   viewWidth: number;
   viewHeight: number;
+  /** Normalized waveform buckets per media asset id (`0 = loud, 1 = silence`),
+   *  loaded on demand from the Rust media cache. Absent until resolved. */
+  waveforms: Map<string, number[]>;
 }
 
 export function paintTimeline(ctx: CanvasRenderingContext2D, s: PaintState) {
@@ -68,6 +71,7 @@ export function paintTimeline(ctx: CanvasRenderingContext2D, s: PaintState) {
       drawClip(ctx, clip, rect, {
         isSelected: s.selectedClipIds.has(clip.id),
         fps: timeline.fps,
+        waveform: clip.mediaType === "audio" ? s.waveforms.get(clip.mediaRef) : undefined,
       });
     }
   }

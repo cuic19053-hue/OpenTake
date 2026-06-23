@@ -25,6 +25,7 @@ import { hitTestClip, expandLinkGroup, clipsInRect, type ClipHit } from "./hitTe
 import { useProjectStore } from "../../store/projectStore";
 import { useEditorUiStore } from "../../store/uiStore";
 import * as edit from "../../store/editActions";
+import { getWaveform } from "../../lib/api";
 
 type DragState =
   | { kind: "scrub" }
@@ -58,6 +59,9 @@ export function TimelineContainer() {
   const dragRef = useRef<DragState>(null);
   const [snapFrame, setSnapFrame] = useState<number | null>(null);
   const [, forceTick] = useState(0);
+  // Waveform sample cache (media id → buckets), loaded on demand from Rust.
+  const waveformsRef = useRef<Map<string, number[]>>(new Map());
+  const [waveformVersion, setWaveformVersion] = useState(0);
 
   const total = useMemo(() => totalFrames(timeline), [timeline]);
   const docWidth = useMemo(
@@ -133,6 +137,7 @@ export function TimelineContainer() {
       scrollTop,
       viewWidth: viewport.width,
       viewHeight: viewport.height,
+      waveforms: waveformsRef.current,
     });
   }, [
     timeline,
@@ -145,7 +150,33 @@ export function TimelineContainer() {
     docWidth,
     docHeight,
     firstAudio,
+    waveformVersion,
   ]);
+
+  // Load waveform samples for every audio clip's source on demand (cached by
+  // media id), then trigger a repaint. The real bars replace the faint band
+  // once the Rust `get_waveform` cache resolves.
+  useEffect(() => {
+    const wanted = new Set<string>();
+    for (const track of timeline.tracks) {
+      for (const clip of track.clips) {
+        if (clip.mediaType === "audio") wanted.add(clip.mediaRef);
+      }
+    }
+    let cancelled = false;
+    for (const ref of wanted) {
+      if (waveformsRef.current.has(ref)) continue;
+      waveformsRef.current.set(ref, []); // mark in-flight so we fetch once
+      void getWaveform(ref).then((samples) => {
+        if (cancelled || !samples || samples.length === 0) return;
+        waveformsRef.current.set(ref, samples);
+        setWaveformVersion((v) => v + 1);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [timeline]);
 
   // Paint ruler canvas (sticky top).
   useEffect(() => {

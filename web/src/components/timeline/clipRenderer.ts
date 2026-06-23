@@ -14,6 +14,49 @@ import type { Clip } from "../../lib/types";
 interface DrawOpts {
   isSelected: boolean;
   fps: number;
+  /** Normalized waveform buckets (`0 = loud, 1 = silence`) spanning the WHOLE
+   *  source media, or undefined until the Rust `get_waveform` cache resolves. */
+  waveform?: number[];
+}
+
+/** Linear amplitude → dB, clamped to the volume slider range. 1:1 port of
+ *  `VolumeScale.dbFromLinear` (opentake-domain clip.rs). */
+export function dbFromLinear(linear: number): number {
+  const FLOOR = -60;
+  const CEIL = 15;
+  if (linear > 0) return Math.min(CEIL, Math.max(FLOOR, 20 * Math.log10(linear)));
+  return FLOOR;
+}
+
+/**
+ * The `[start, end)` sample indices of `clip`'s trimmed source sub-range within a
+ * `sampleCount`-long waveform that spans the WHOLE source. Port of the index math
+ * in `ClipRenderer.drawWaveform` (Swift 207-213): `source_duration_frames =
+ * round(duration*speed) + trim_start + trim_end`. Returns an empty range when the
+ * clip has no positive source span.
+ */
+export function waveformSampleRange(
+  clip: Pick<Clip, "durationFrames" | "speed" | "trimStartFrame" | "trimEndFrame">,
+  sampleCount: number,
+): { start: number; end: number } {
+  const speed = clip.speed > 0 ? clip.speed : 1;
+  const consumed = Math.round(clip.durationFrames * speed);
+  const totalSource = consumed + clip.trimStartFrame + clip.trimEndFrame;
+  if (totalSource <= 0 || sampleCount <= 0) return { start: 0, end: 0 };
+  const startFrac = clip.trimStartFrame / totalSource;
+  const endFrac = (clip.trimStartFrame + consumed) / totalSource;
+  const start = Math.max(0, Math.min(sampleCount, Math.floor(startFrac * sampleCount)));
+  const end = Math.max(start, Math.min(sampleCount, Math.floor(endFrac * sampleCount)));
+  return { start, end };
+}
+
+/** Blend an "rgb(r,g,b)" string `frac` of the way toward white (upstream
+ *  `themeColor.blended(withFraction:of:.white)`). */
+function blendWhite(rgb: string, frac: number): string {
+  const m = rgb.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if (!m) return rgb;
+  const mix = (c: number) => Math.round(c + (255 - c) * frac);
+  return `rgb(${mix(+m[1])},${mix(+m[2])},${mix(+m[3])})`;
 }
 
 function roundRectPath(
@@ -69,7 +112,13 @@ export function drawClip(
   const contentH = height - CLIP.labelBarHeight;
   if (contentW > 2 && contentH > 2) {
     if (clip.mediaType === "audio") {
-      drawWaveformPlaceholder(ctx, contentX, contentY, contentW, contentH, color, opts.isSelected);
+      if (opts.waveform && opts.waveform.length > 0) {
+        drawWaveform(ctx, clip, contentX, contentY, contentW, contentH, color, opts.waveform);
+      } else {
+        // No samples yet (cache still resolving): a faint band, not a fake wave.
+        ctx.fillStyle = withAlpha(color, 0.12);
+        ctx.fillRect(contentX, contentY, contentW, contentH);
+      }
     } else {
       ctx.fillStyle = withAlpha(color, 0.12);
       ctx.fillRect(contentX, contentY, contentW, contentH);
@@ -139,28 +188,53 @@ export function drawClip(
   ctx.restore();
 }
 
-function drawWaveformPlaceholder(
+/**
+ * Real waveform render — port of `ClipRenderer.drawWaveform` (Swift 195-263).
+ * `samples` are normalized buckets (`0 = loud, 1 = silence`) over the WHOLE
+ * source. Maps the clip's trimmed source sub-range into the samples, peak-detects
+ * (min, since 0 = loud) per output bar, shifts the dB axis by the clip volume,
+ * and draws bottom-anchored 1px bars. Per-bar volume (keyframed/faded audio) is
+ * a follow-up; the static-volume path matches the common case exactly.
+ */
+function drawWaveform(
   ctx: CanvasRenderingContext2D,
+  clip: Clip,
   x: number,
   y: number,
   w: number,
   h: number,
   color: string,
-  selected: boolean,
+  samples: number[],
 ) {
-  // Simple symmetric pseudo-waveform around the vertical center until the Rust
-  // PCM samples arrive (SPEC §11.3 media_thumbnails).
-  const midY = y + h / 2;
-  ctx.strokeStyle = withAlpha(color, selected ? 0.85 : 0.6);
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  const step = 3;
-  for (let px = 0; px <= w; px += step) {
-    const amp = (Math.sin(px * 0.25) * 0.5 + 0.5) * (h * 0.4);
-    ctx.moveTo(x + px, midY - amp);
-    ctx.lineTo(x + px, midY + amp);
+  if (w <= 2 || h <= 2 || samples.length === 0) return;
+
+  // Visible source range → sample indices.
+  const { start: sampleStart, end: sampleEnd } = waveformSampleRange(clip, samples.length);
+  if (sampleEnd <= sampleStart) return;
+
+  const barCount = Math.floor(w);
+  if (barCount <= 0) return;
+  const visCount = sampleEnd - sampleStart;
+
+  // Samples are dB-normalized, so volume shifts the dB axis (not multiplies).
+  const dbRange = 50;
+  const staticShift = dbFromLinear(clip.volume) / dbRange;
+
+  ctx.fillStyle = withAlpha(blendWhite(color, 0.3), 0.85);
+  for (let i = 0; i < barCount; i++) {
+    const sStart = sampleStart + Math.floor((i * visCount) / barCount);
+    const sEnd = Math.max(sStart + 1, sampleStart + Math.floor(((i + 1) * visCount) / barCount));
+    const end = Math.min(sEnd, sampleEnd);
+    let loudest = 1; // 0 = loud, so the loudest sample is the MIN
+    for (let j = sStart; j < end; j++) {
+      const s = samples[j];
+      if (s < loudest) loudest = s;
+    }
+    const dbAmp = Math.max(0, 1 - loudest + staticShift);
+    const amplitude = Math.min(1, dbAmp);
+    const barHeight = Math.max(1, amplitude * (h - 2));
+    ctx.fillRect(x + i, y + h - barHeight - 1, 1, barHeight);
   }
-  ctx.stroke();
 }
 
 function drawFades(ctx: CanvasRenderingContext2D, clip: Clip, rect: ClipRect) {
@@ -202,14 +276,18 @@ function drawKeyframeMarkers(ctx: CanvasRenderingContext2D, clip: Clip, rect: Cl
     if (!t) continue;
     for (const kf of t.keyframes) frames.add(kf.frame);
   }
-  if (frames.size === 0) return;
-  const ppf = clip.durationFrames > 0 ? rect.width / clip.durationFrames : 0;
+  if (frames.size === 0 || clip.durationFrames <= 0) return;
+  // Markers live INSIDE the trim handles, so the diamond at frame 0 isn't hidden
+  // under the left handle (ClipRenderer.swift:172-181).
+  const ppf = (rect.width - 2 * TRIM.handleWidth) / clip.durationFrames;
+  if (ppf <= 0) return;
+  const baseX = rect.x + TRIM.handleWidth;
   const cy = rect.y + rect.height - 5;
   const radius = CLIP.keyframeDiamondRadius;
   ctx.save();
   for (const f of frames) {
-    const cx = rect.x + f * ppf;
-    if (cx < rect.x || cx > rect.x + rect.width) continue;
+    if (f < 0 || f > clip.durationFrames) continue; // clip.contains(timelineFrame:)
+    const cx = baseX + f * ppf;
     ctx.beginPath();
     ctx.moveTo(cx, cy - radius);
     ctx.lineTo(cx + radius, cy);

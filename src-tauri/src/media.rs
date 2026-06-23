@@ -326,6 +326,36 @@ pub fn get_media(core: State<'_, AppCore>) -> MediaListDto {
     MediaListDto::from_core(&core)
 }
 
+/// `get_waveform`: normalized waveform buckets (`0 = loud, 1 = silence`) for the
+/// media asset `media_ref`, computed (and disk-cached) by the media engine. The
+/// returned array spans the WHOLE source; the timeline maps each clip's trimmed
+/// sub-range into it (mirrors upstream `MediaVisualCache.waveform`). Errors when
+/// the asset is unknown, has no resolvable path, or carries no audio track.
+#[tauri::command]
+pub fn get_waveform(
+    core: State<'_, AppCore>,
+    media: State<'_, MediaState>,
+    media_ref: String,
+) -> Result<Vec<f32>, String> {
+    let manifest = core.media();
+    let entry = manifest
+        .entries
+        .iter()
+        .find(|e| e.id == media_ref)
+        .ok_or_else(|| format!("media not found: {media_ref}"))?;
+    let path = match &entry.source {
+        MediaSource::External { absolute_path } => PathBuf::from(absolute_path),
+        MediaSource::Project { relative_path } => match core.project_dir() {
+            Some(base) => base.join(relative_path),
+            None => return Err("project not saved; cannot resolve media path".into()),
+        },
+    };
+    media
+        .engine()
+        .waveform(&path, entry.duration)
+        .map_err(|e| e.to_string())
+}
+
 /// Collect importable media files under `root`. Top-level only unless
 /// `recursive`. Sorted by case-insensitive file name so a folder import mints
 /// asset ids in a stable order. Hidden entries (dot-prefixed) are skipped, as
