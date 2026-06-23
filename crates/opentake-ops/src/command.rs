@@ -901,9 +901,9 @@ fn stamp_keyframe(
     property: KeyframeProperty,
     frame: i32,
 ) -> Result<EditResult, EditError> {
-    let loc = state.find_clip(&clip_id).ok_or_else(|| {
-        EditError::Invalid(format!("Clip not found: {clip_id}"))
-    })?;
+    let loc = state
+        .find_clip(&clip_id)
+        .ok_or_else(|| EditError::Invalid(format!("Clip not found: {clip_id}")))?;
     let clip = &state.timeline.tracks[loc.track_index].clips[loc.clip_index];
     if !clip.contains(frame) {
         return Err(EditError::Invalid(format!(
@@ -1195,12 +1195,8 @@ fn set_keyframe_interpolation(
                 KeyframeProperty::Position => {
                     set_kf_interp(&mut clip.position_track, rel, interpolation)
                 }
-                KeyframeProperty::Scale => {
-                    set_kf_interp(&mut clip.scale_track, rel, interpolation)
-                }
-                KeyframeProperty::Crop => {
-                    set_kf_interp(&mut clip.crop_track, rel, interpolation)
-                }
+                KeyframeProperty::Scale => set_kf_interp(&mut clip.scale_track, rel, interpolation),
+                KeyframeProperty::Crop => set_kf_interp(&mut clip.crop_track, rel, interpolation),
             }
             Ok(vec![clip_id])
         },
@@ -1800,11 +1796,9 @@ fn empty_to_none<V>(
     }
 }
 
-fn has_keyframe_at<V>(
-    t_opt: &Option<opentake_domain::KeyframeTrack<V>>,
-    rel: i32,
-) -> bool {
-    t_opt.as_ref()
+fn has_keyframe_at<V>(t_opt: &Option<opentake_domain::KeyframeTrack<V>>, rel: i32) -> bool {
+    t_opt
+        .as_ref()
         .map(|t| t.keyframes.iter().any(|k| k.frame == rel))
         .unwrap_or(false)
 }
@@ -2025,7 +2019,7 @@ mod keyframe_edit_tests {
         let kfs = opacity_track_kfs(&state, &clip_id);
         assert_eq!(kfs.len(), 1);
         assert_eq!(kfs[0].0, 10); // rel frame
-        // Default opacity is 1.0, so stamped value is 1.0.
+                                  // Default opacity is 1.0, so stamped value is 1.0.
         approx(kfs[0].1, 1.0);
     }
 
@@ -2103,7 +2097,9 @@ mod keyframe_edit_tests {
 
         // Track should be cleared to None when empty.
         let loc = state.find_clip(&clip_id).unwrap();
-        assert!(state.timeline.tracks[loc.track_index].clips[loc.clip_index].opacity_track.is_none());
+        assert!(state.timeline.tracks[loc.track_index].clips[loc.clip_index]
+            .opacity_track
+            .is_none());
     }
 
     #[test]
@@ -2212,7 +2208,10 @@ mod keyframe_edit_tests {
         let (mut state, ids, clip_id) = make_state_with_clip();
         // Keyframe::new defaults to Smooth.
         set_opacity_track(&mut state, &clip_id, vec![Keyframe::new(0, 0.5)]);
-        assert_eq!(opacity_track_kfs(&state, &clip_id)[0].2, Interpolation::Smooth);
+        assert_eq!(
+            opacity_track_kfs(&state, &clip_id)[0].2,
+            Interpolation::Smooth
+        );
 
         apply(
             &mut state,
