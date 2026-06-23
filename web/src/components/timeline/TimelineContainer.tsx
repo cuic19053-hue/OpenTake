@@ -257,10 +257,14 @@ export function TimelineContainer() {
 
       const hit = hitTestClip(timeline, docX, docY, zoomScale, trackHeights);
 
-      // Razor tool + clip -> split at click frame.
+      // Razor tool + clip -> split at the (snapped) click frame. Snapping to
+      // clip edges / playhead matches upstream's razor (a cut landing on the
+      // clip's own edge is a backend no-op, which is fine).
       if (toolMode === "razor" && hit) {
-        const f = frameAt(docX, zoomScale);
-        void edit.splitClip(hit.clip.id, f);
+        const raw = frameAt(docX, zoomScale);
+        const targets = collectTargets(timeline, new Set(), activeFrame);
+        const snap = findSnap(raw, targets, zoomScale, null);
+        void edit.splitClip(hit.clip.id, snap ? snap.frame : raw);
         dragRef.current = null;
         return;
       }
