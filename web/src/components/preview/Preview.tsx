@@ -28,6 +28,18 @@ import { TimelinePlayback } from "./TimelinePlaybackLayer";
 import { useT } from "../../i18n";
 import type { MediaItem } from "../../lib/types";
 
+/** A value that only updates after it has been stable for `ms` (trailing
+ *  debounce). Used to defer the expensive timeline composite until the playhead
+ *  stops moving, so scrubbing doesn't spawn a per-frame ffmpeg/GPU storm. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebounced(value), ms);
+    return () => window.clearTimeout(id);
+  }, [value, ms]);
+  return debounced;
+}
+
 export function Preview() {
   const t = useT();
   const timeline = useProjectStore((s) => s.timeline);
@@ -66,15 +78,21 @@ export function Preview() {
   // GPU composite is fetched only when PAUSED/scrubbing (accurate text/effects,
   // and no per-frame ffmpeg/PNG churn while playing).
   const timelinePlaying = !previewing && isPlaying && timeline.tracks.length > 0;
-  // Throttle paused/scrub composite fetches (~11fps): each composite is an
-  // ffmpeg decode + PNG + base64 decode on the main thread, so firing one per
-  // scrubbed frame overloads the UI (the "scrub is laggy / doesn't follow"
-  // report). The playhead itself still moves instantly; the frame catches up.
-  const timelineFrameUrl = useTimelineFrame(
+  // Debounce the composited frame: each composite is a separate ffmpeg decode +
+  // wgpu pass + PNG + base64, so firing one per scrubbed frame spawns a storm of
+  // subprocess + GPU work that can lock up the whole machine (reported freeze).
+  // The playhead still moves instantly; the composite is fetched only once the
+  // playhead has settled for ~140ms (i.e. you stop scrubbing). See the perf
+  // issue for the proper fix (a streaming playback/scrub engine).
+  const composeFrame = useDebounced(
     Math.min(Math.round(activeFrame), Math.max(0, timelineTotal - 1)),
+    140,
+  );
+  const timelineFrameUrl = useTimelineFrame(
+    composeFrame,
     !previewing && timeline.tracks.length > 0 && !isPlaying,
     timeline,
-    90,
+    0,
   );
   const fps = timeline.fps;
   const total = previewing
