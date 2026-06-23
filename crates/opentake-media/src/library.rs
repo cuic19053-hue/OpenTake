@@ -282,6 +282,52 @@ impl LibraryStore {
         self.store_manifest(&manifest)?;
         Ok(true)
     }
+
+    /// Set (or clear, with `None`) the category of the entry with `id`. Returns
+    /// the updated entry, or `None` if no entry has that id. Runs under the write
+    /// lock so it cannot race a concurrent favorite/remove. Used by the command
+    /// layer's `library_categorize` (#55).
+    pub fn set_category(&self, id: &str, category: Option<String>) -> Result<Option<LibraryEntry>> {
+        let _guard = self
+            .write_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let mut manifest = self.load_manifest()?;
+        let Some(entry) = manifest.entries.iter_mut().find(|e| e.id == id) else {
+            return Ok(None);
+        };
+        entry.category = category;
+        let updated = entry.clone();
+        manifest.version = MANIFEST_VERSION;
+        self.store_manifest(&manifest)?;
+        Ok(Some(updated))
+    }
+
+    /// Rename a category: move every entry whose category equals `from` to `to`
+    /// (`None` un-categorizes them). Returns the number of entries changed. Runs
+    /// under the write lock. Used by the command layer's `library_rename` (#55).
+    pub fn rename_category(&self, from: &str, to: Option<String>) -> Result<usize> {
+        let _guard = self
+            .write_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let mut manifest = self.load_manifest()?;
+        let mut changed = 0usize;
+        for entry in manifest.entries.iter_mut() {
+            if entry.category.as_deref() == Some(from) {
+                entry.category = to.clone();
+                changed += 1;
+            }
+        }
+        if changed == 0 {
+            return Ok(0);
+        }
+        manifest.version = MANIFEST_VERSION;
+        self.store_manifest(&manifest)?;
+        Ok(changed)
+    }
 }
 
 /// SHA-256 of `bytes` as lowercase hex (the content id).
@@ -462,6 +508,51 @@ mod tests {
         let json = serde_json::to_string(&e).unwrap();
         assert!(json.contains("\"type\":\"video\""));
         assert!(json.contains("\"favoritedAt\":1.0"));
+    }
+
+    #[test]
+    fn set_category_updates_one_entry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = tmp.path().join("lib");
+        let a = src_file(tmp.path(), "a.mp4", b"cat");
+        let store = LibraryStore::new(&lib);
+        let e = store.favorite(&req(&a, "video", None)).unwrap();
+
+        let updated = store
+            .set_category(&e.id, Some("broll".to_string()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.category.as_deref(), Some("broll"));
+        // Persisted across a fresh store instance.
+        let got = LibraryStore::new(&lib).entries().unwrap();
+        assert_eq!(got[0].category.as_deref(), Some("broll"));
+        // Unknown id yields None.
+        assert!(store.set_category("nope", None).unwrap().is_none());
+        // Clearing works.
+        store.set_category(&e.id, None).unwrap();
+        assert_eq!(store.entries().unwrap()[0].category, None);
+    }
+
+    #[test]
+    fn rename_category_moves_matching_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = tmp.path().join("lib");
+        let a = src_file(tmp.path(), "a.mp4", b"x");
+        let b = src_file(tmp.path(), "b.mp4", b"y");
+        let c = src_file(tmp.path(), "c.mp4", b"z");
+        let store = LibraryStore::new(&lib);
+        store.favorite(&req(&a, "video", Some("old"))).unwrap();
+        store.favorite(&req(&b, "video", Some("old"))).unwrap();
+        store.favorite(&req(&c, "video", Some("keep"))).unwrap();
+
+        let changed = store
+            .rename_category("old", Some("new".to_string()))
+            .unwrap();
+        assert_eq!(changed, 2);
+        assert_eq!(store.entries_in_category(Some("new")).unwrap().len(), 2);
+        assert_eq!(store.entries_in_category(Some("keep")).unwrap().len(), 1);
+        // No match is a no-op.
+        assert_eq!(store.rename_category("missing", None).unwrap(), 0);
     }
 
     #[test]
