@@ -15,6 +15,7 @@ import {
   trackAt,
 } from "../../lib/geometry";
 import { firstAudioIndex } from "../../lib/zones";
+import { clampTrimDeltaFrames, trimSourceValues } from "../../lib/clip";
 import { collectTargets, findSnap } from "../../lib/snap";
 import { paintTimeline } from "./timelineCanvas";
 import { paintRuler } from "./rulerCanvas";
@@ -383,6 +384,9 @@ export function TimelineContainer() {
         } else {
           setSnapFrame(null);
         }
+        // Clamp so the clip keeps a ≥1-frame duration and can't run past the
+        // available source (upstream's mouseDragged trim clamp).
+        deltaFrames = clampTrimDeltaFrames(d.hit.clip, d.kind === "trimLeft" ? "left" : "right", deltaFrames);
         dragRef.current = { ...d, deltaFrames };
         forceTick((n) => n + 1);
         return;
@@ -409,40 +413,57 @@ export function TimelineContainer() {
 
       if (d.kind === "move") {
         if (d.deltaFrames === 0 && d.targetTrack === d.startTrack) return; // no-op
-        const moves = d.companions
+        // Resolve every dragged clip's current location.
+        const locs = d.companions
           .map((id) => {
             const loc = findClipLoc(timeline, id);
-            if (!loc) return null;
-            const clip = timeline.tracks[loc[0]].clips[loc[1]];
-            const trackDelta = d.targetTrack - d.startTrack;
-            const toTrack = clamp(loc[0] + trackDelta, 0, timeline.tracks.length - 1);
-            // Cross-track only when type-compatible; else stay.
-            const compatible = compatibleTracks(timeline, loc[0], toTrack);
-            return {
-              clipId: id,
-              toTrack: compatible ? toTrack : loc[0],
-              toFrame: Math.max(0, clip.startFrame + d.deltaFrames),
-            };
+            return loc
+              ? { id, ti: loc[0], clip: timeline.tracks[loc[0]].clips[loc[1]] }
+              : null;
           })
-          .filter((m): m is NonNullable<typeof m> => m !== null);
+          .filter((x): x is NonNullable<typeof x> => x !== null);
+        if (locs.length === 0) return;
+
+        // One group-floor FRAME delta so the earliest clip lands at >=0 and the
+        // whole selection keeps its relative spacing (not per-clip max(0,...)).
+        const minStart = Math.min(...locs.map((l) => l.clip.startFrame));
+        const frameDelta = Math.max(d.deltaFrames, -minStart);
+
+        // One group TRACK delta: step toward 0 until every clip stays in-bounds
+        // and lands on a type-compatible track (rigid group, not per-clip clamp).
+        const rawTrackDelta = d.targetTrack - d.startTrack;
+        let trackDelta = rawTrackDelta;
+        const step = rawTrackDelta > 0 ? -1 : 1;
+        while (trackDelta !== 0) {
+          const ok = locs.every((l) => {
+            const to = l.ti + trackDelta;
+            return to >= 0 && to < timeline.tracks.length && compatibleTracks(timeline, l.ti, to);
+          });
+          if (ok) break;
+          trackDelta += step;
+        }
+
+        if (frameDelta === 0 && trackDelta === 0) return; // nothing actually moves
+        const moves = locs.map((l) => ({
+          clipId: l.id,
+          toTrack: l.ti + trackDelta,
+          toFrame: l.clip.startFrame + frameDelta,
+        }));
         void edit.moveClips(moves);
         return;
       }
 
-      if (d.kind === "trimLeft") {
+      if (d.kind === "trimLeft" || d.kind === "trimRight") {
         if (d.deltaFrames === 0) return;
-        const newTrim = Math.max(0, d.startTrim + d.deltaFrames);
-        void edit.trimClips([
-          { clipId: d.hit.clip.id, trimStartFrame: newTrim, trimEndFrame: d.hit.clip.trimEndFrame },
-        ]);
-        return;
-      }
-      if (d.kind === "trimRight") {
-        if (d.deltaFrames === 0) return;
-        const newTrim = Math.max(0, d.startTrim - d.deltaFrames);
-        void edit.trimClips([
-          { clipId: d.hit.clip.id, trimStartFrame: d.hit.clip.trimStartFrame, trimEndFrame: newTrim },
-        ]);
+        // Convert the timeline-frame edge delta to SOURCE-frame trim values
+        // (round(delta * speed)); image/text are unbounded, video/audio clamp at
+        // 0 — mirrors opentake-ops trim_values.
+        const { trimStartFrame, trimEndFrame } = trimSourceValues(
+          d.hit.clip,
+          d.kind === "trimLeft" ? "left" : "right",
+          d.deltaFrames,
+        );
+        void edit.trimClips([{ clipId: d.hit.clip.id, trimStartFrame, trimEndFrame }]);
       }
     },
     [timeline],
@@ -547,10 +568,6 @@ function findClipLoc(timeline: { tracks: { clips: { id: string }[] }[] }, id: st
     if (ci >= 0) return [ti, ci];
   }
   return null;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
 }
 
 function compatibleTracks(
