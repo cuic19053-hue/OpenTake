@@ -118,14 +118,26 @@ export async function redo() {
   if (!isTauri) await forceRefresh();
 }
 
-/** Split every selected clip at the current playhead (Toolbar / ⌘K). Splitting a
- *  clip the playhead doesn't intersect is a no-op in the core, so looping over
- *  the whole selection is safe. */
+/** Split at the current playhead (Toolbar / ⌘K). Splits the SELECTED clips the
+ *  playhead intersects; if nothing is selected, splits every clip under the
+ *  playhead (so split works without first selecting — matches editor norms).
+ *  A clip the playhead doesn't intersect is a no-op in the core. */
 export async function splitAtPlayhead() {
   const ui = useEditorUiStore.getState();
   const frame = Math.round(ui.activeFrame);
   const selected = [...ui.selectedClipIds];
-  for (const id of selected) {
+  let ids = selected;
+  if (ids.length === 0) {
+    // No selection: target every clip the playhead currently intersects.
+    const timeline = useProjectStore.getState().timeline;
+    ids = [];
+    for (const track of timeline.tracks) {
+      for (const c of track.clips) {
+        if (frame > c.startFrame && frame < c.startFrame + c.durationFrames) ids.push(c.id);
+      }
+    }
+  }
+  for (const id of ids) {
     await splitClip(id, frame);
   }
 }

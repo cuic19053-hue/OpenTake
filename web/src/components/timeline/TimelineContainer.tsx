@@ -459,15 +459,21 @@ export function TimelineContainer() {
 
       if (d.kind === "trimLeft" || d.kind === "trimRight") {
         if (d.deltaFrames === 0) return;
-        // Convert the timeline-frame edge delta to SOURCE-frame trim values
-        // (round(delta * speed)); image/text are unbounded, video/audio clamp at
-        // 0 — mirrors opentake-ops trim_values.
-        const { trimStartFrame, trimEndFrame } = trimSourceValues(
-          d.hit.clip,
-          d.kind === "trimLeft" ? "left" : "right",
-          d.deltaFrames,
-        );
-        void edit.trimClips([{ clipId: d.hit.clip.id, trimStartFrame, trimEndFrame }]);
+        const edge = d.kind === "trimLeft" ? "left" : "right";
+        // Linked partners trim together (upstream commitTrim): apply the SAME
+        // timeline-frame edge delta to every clip in the link group, each
+        // converted to its own SOURCE-frame trim via round(delta*speed).
+        const groupIds = expandLinkGroup(timeline, new Set([d.hit.clip.id]));
+        const edits = [...groupIds]
+          .map((id) => {
+            const loc = findClipLoc(timeline, id);
+            if (!loc) return null;
+            const clip = timeline.tracks[loc[0]].clips[loc[1]];
+            const v = trimSourceValues(clip, edge, d.deltaFrames);
+            return { clipId: id, trimStartFrame: v.trimStartFrame, trimEndFrame: v.trimEndFrame };
+          })
+          .filter((e): e is NonNullable<typeof e> => e !== null);
+        void edit.trimClips(edits);
       }
     },
     [timeline],
