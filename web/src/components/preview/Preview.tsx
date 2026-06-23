@@ -24,6 +24,7 @@ import { useMediaStore } from "../../store/mediaStore";
 import { formatTimecode, totalFrames } from "../../lib/geometry";
 import { assetUrl } from "../../lib/asset";
 import { useTimelineFrame } from "./useTimelineFrame";
+import { TimelinePlayback } from "./TimelinePlaybackLayer";
 import { useT } from "../../i18n";
 import type { MediaItem } from "../../lib/types";
 
@@ -62,11 +63,15 @@ export function Preview() {
   // playback the request rate is capped (~11fps) to bound ffmpeg/PNG churn until
   // the streaming engine (#53) lands; paused/scrub stays immediate.
   const timelineTotal = totalFrames(timeline);
+  // During playback `<TimelinePlayback>` plays the real media elements, so the
+  // GPU composite is fetched only when PAUSED/scrubbing (accurate text/effects,
+  // and no per-frame ffmpeg/PNG churn while playing).
+  const timelinePlaying = !previewing && isPlaying && timeline.tracks.length > 0;
   const timelineFrameUrl = useTimelineFrame(
     Math.min(Math.round(activeFrame), Math.max(0, timelineTotal - 1)),
-    !previewing && timeline.tracks.length > 0,
+    !previewing && timeline.tracks.length > 0 && !isPlaying,
     timeline,
-    isPlaying ? 90 : 0,
+    0,
   );
   const fps = timeline.fps;
   const total = previewing
@@ -167,6 +172,9 @@ export function Preview() {
               onDuration={setMediaDuration}
               onPlayingChange={setMediaPlaying}
             />
+          ) : timelinePlaying ? (
+            // Real-time playback: actual <video>/<audio> elements (#53).
+            <TimelinePlayback timeline={timeline} fps={fps} />
           ) : timelineFrameUrl ? (
             // Rust GPU composite of the timeline at the current playhead (#47).
             <img
