@@ -182,6 +182,12 @@ const zh: Dict = {
   // Common
   "common.cancel": "取消",
   "common.open": "打开",
+
+  // Edit (copy / cut / paste, Issue #94)
+  "edit.copy": "复制 (⌘C)",
+  "edit.cut": "剪切 (⌘X)",
+  "edit.paste": "粘贴 (⌘V)",
+  "edit.clipboardEmpty": "剪贴板为空",
 };
 
 const en: Dict = {
@@ -336,6 +342,12 @@ const en: Dict = {
 
   "common.cancel": "Cancel",
   "common.open": "Open",
+
+  // Edit (copy / cut / paste, Issue #94)
+  "edit.copy": "Copy (⌘C)",
+  "edit.cut": "Cut (⌘X)",
+  "edit.paste": "Paste (⌘V)",
+  "edit.clipboardEmpty": "Clipboard is empty",
 };
 
 export const DICTS: Record<Locale, Dict> = {
