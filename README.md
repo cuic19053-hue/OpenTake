@@ -212,6 +212,40 @@ crates/
 | [PORT-1TO1-GAP.md](docs/PORT-1TO1-GAP.md) | 1:1 port gap analysis |
 
 ---
+---
+
+## 🔗 Upstream Reference
+
+When porting editing logic, compare against the original Palmier Pro Swift source:
+
+```bash
+# Clone upstream alongside OpenTake (sibling directory)
+cd ..
+git clone https://github.com/palmier-io/palmier-pro.git palmier-pro-upstream
+cd OpenTake
+```
+
+Expected layout:
+
+```
+PRIMARY-CN/
+├── OpenTake/                  # This repo
+└── palmier-pro-upstream/      # Upstream Swift source (GPL-3.0)
+```
+
+Key files for comparison:
+
+| Module | Upstream (Swift) | OpenTake (Rust/TS) |
+|:--|:--|:--|
+| Timeline models | `Sources/PalmierPro/Models/Timeline.swift` | `crates/opentake-domain/src/timeline.rs` |
+| Clip model | `Sources/PalmierPro/Models/Timeline.swift` (Clip struct) | `crates/opentake-domain/src/clip.rs` |
+| Clip renderer | `Sources/PalmierPro/Timeline/ClipRenderer.swift` | `web/src/components/timeline/clipRenderer.ts` |
+| Timeline geometry | `Sources/PalmierPro/Timeline/TimelineGeometry.swift` | `web/src/lib/geometry.ts` |
+| Snap engine | `Sources/PalmierPro/Timeline/SnapEngine.swift` | `web/src/lib/snap.ts` |
+| Edit operations | `Sources/PalmierPro/Editor/ViewModel/EditorViewModel+ClipMutations.swift` | `crates/opentake-ops/src/ops/` |
+| MCP tools | `Sources/PalmierPro/Agent/Tools/ToolExecutor+Timeline.swift` | `crates/opentake-agent/src/tools/` |
+
+> The upstream directory is gitignored from OpenTake — each collaborator clones it independently.
 
 ## 🚀 Quick Start
 

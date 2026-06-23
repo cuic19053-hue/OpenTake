@@ -183,6 +183,41 @@ crates/
 | [PORT-1TO1-GAP.md](docs/PORT-1TO1-GAP.md) | 1:1移植ギャップ分析 |
 
 ---
+---
+
+## 🔗 上流リファレンス
+
+編集ロジックの移植時は、オリジナルの Palmier Pro Swift ソースと比較してください：
+
+```bash
+# OpenTake の兄弟ディレクトリに上流を clone
+cd ..  # from OpenTake/
+git clone https://github.com/palmier-io/palmier-pro.git palmier-pro-upstream
+cd OpenTake
+```
+
+ディレクトリ構成：
+
+```
+PRIMARY-CN/
+├── OpenTake/                  # このリポジトリ
+└── palmier-pro-upstream/      # 上流 Swift ソース (GPL-3.0)
+```
+
+比較用キーファイル：
+
+| モジュール | 上流 (Swift) | OpenTake (Rust/TS) |
+|:--|:--|:--|
+| Timeline モデル | `Sources/PalmierPro/Models/Timeline.swift` | `crates/opentake-domain/src/timeline.rs` |
+| Clip モデル | `Sources/PalmierPro/Models/Timeline.swift` (Clip struct) | `crates/opentake-domain/src/clip.rs` |
+| Clip レンダラー | `Sources/PalmierPro/Timeline/ClipRenderer.swift` | `web/src/components/timeline/clipRenderer.ts` |
+| Timeline ジオメトリ | `Sources/PalmierPro/Timeline/TimelineGeometry.swift` | `web/src/lib/geometry.ts` |
+| Snap エンジン | `Sources/PalmierPro/Timeline/SnapEngine.swift` | `web/src/lib/snap.ts` |
+| 編集操作 | `Sources/PalmierPro/Editor/ViewModel/EditorViewModel+ClipMutations.swift` | `crates/opentake-ops/src/ops/` |
+| MCP ツール | `Sources/PalmierPro/Agent/Tools/ToolExecutor+Timeline.swift` | `crates/opentake-agent/src/tools/` |
+
+> 上流ディレクトリは OpenTake の .gitignore で除外されています。各コラボレーターが個別に clone してください。
+---
 
 ## 🚀 クイックスタート
 

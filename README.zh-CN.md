@@ -193,6 +193,41 @@ crates/
 | [PORT-1TO1-GAP.md](docs/PORT-1TO1-GAP.md) | 1:1 端口差距分析 |
 
 ---
+---
+
+## 🔗 上游参考代码
+
+编辑逻辑移植时，对照原版 Palmier Pro Swift 源码：
+
+```bash
+# 在 OpenTake 同级目录 clone 上游
+cd ..  # from OpenTake/
+git clone https://github.com/palmier-io/palmier-pro.git palmier-pro-upstream
+cd OpenTake
+```
+
+目录结构：
+
+```
+PRIMARY-CN/
+├── OpenTake/                  # 本项目
+└── palmier-pro-upstream/      # 上游 Swift 源码 (GPL-3.0)
+```
+
+对照关键文件：
+
+| 模块 | 上游 (Swift) | OpenTake (Rust/TS) |
+|:--|:--|:--|
+| Timeline 模型 | `Sources/PalmierPro/Models/Timeline.swift` | `crates/opentake-domain/src/timeline.rs` |
+| Clip 模型 | `Sources/PalmierPro/Models/Timeline.swift` (Clip struct) | `crates/opentake-domain/src/clip.rs` |
+| Clip 渲染器 | `Sources/PalmierPro/Timeline/ClipRenderer.swift` | `web/src/components/timeline/clipRenderer.ts` |
+| Timeline 几何 | `Sources/PalmierPro/Timeline/TimelineGeometry.swift` | `web/src/lib/geometry.ts` |
+| Snap 引擎 | `Sources/PalmierPro/Timeline/SnapEngine.swift` | `web/src/lib/snap.ts` |
+| 编辑操作 | `Sources/PalmierPro/Editor/ViewModel/EditorViewModel+ClipMutations.swift` | `crates/opentake-ops/src/ops/` |
+| MCP 工具 | `Sources/PalmierPro/Agent/Tools/ToolExecutor+Timeline.swift` | `crates/opentake-agent/src/tools/` |
+
+> 上游目录被 OpenTake 的 .gitignore 排除，每位协作者需独立 clone。
+---
 
 ## 🚀 快速开始
 
