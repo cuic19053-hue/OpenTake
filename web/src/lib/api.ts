@@ -105,6 +105,20 @@ export async function getDefaultProjectDir(): Promise<string> {
   return "";
 }
 
+/**
+ * Export the current timeline to `path` as Final Cut Pro 7 XML (XMEML, `.xml`)
+ * so it opens in Premiere / DaVinci Resolve / FCP. The command name says
+ * "fcpxml" (the F4 contract) but the produced format is XMEML — Premiere doesn't
+ * read FCPXML natively, so upstream exports XMEML; DaVinci/FCP still import it.
+ * No-op outside Tauri (no Rust core / no file system).
+ */
+export async function exportFcpxml(path: string): Promise<void> {
+  await ensureTauri();
+  if (invokeImpl) {
+    await invokeImpl<void>("export_fcpxml", { path });
+  }
+}
+
 // MARK: - Media commands
 //
 // `import_folder` scans a directory for white-listed media and imports each;

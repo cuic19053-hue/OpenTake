@@ -13,7 +13,19 @@ export type Panel = "agent" | "media" | "preview" | "inspector" | "timeline";
 export type AppView = "home" | "editor" | "settings";
 export type ToolMode = "pointer" | "razor";
 export type LayoutPreset = "default" | "media" | "vertical";
-export type MediaTabId = "media" | "captions" | "music";
+/** 剪映式顶部素材面板主标签（英文标识符，中文文案在 dict）。
+ *  目前仅 material/audio 可用，其余为置灰占位（功能未做）。 */
+export type MediaTabId =
+  | "material"
+  | "audio"
+  | "text"
+  | "sticker"
+  | "effect"
+  | "transition"
+  | "subtitle"
+  | "smartPack";
+/** 素材/音频下的二级标签：导入（全部素材）/ 我的（星标收藏）。 */
+export type MediaSubTabId = "import" | "mine";
 export type InspectorTabId = "text" | "video" | "audio" | "aiEdit";
 
 const LS = {
@@ -83,6 +95,7 @@ interface UiState {
 
   // Sub-tabs
   mediaTab: MediaTabId;
+  mediaSubTab: MediaSubTabId;
   inspectorTab: InspectorTabId;
   previewActiveTabId: string;
 
@@ -119,6 +132,7 @@ interface UiState {
   toggleKeyframesPanel: () => void;
 
   setMediaTab: (tab: MediaTabId) => void;
+  setMediaSubTab: (tab: MediaSubTabId) => void;
   setInspectorTab: (tab: InspectorTabId) => void;
 }
 
@@ -156,7 +170,8 @@ export const useEditorUiStore = create<UiState>((set, get) => ({
   inspectorPanelVisible: loadBool(LS.inspectorPanelVisible, true),
   keyframesPanelVisible: loadBool(LS.keyframesPanelVisible, false),
 
-  mediaTab: "media",
+  mediaTab: "material",
+  mediaSubTab: "import",
   inspectorTab: "video",
   previewActiveTabId: "timeline",
 
@@ -228,5 +243,6 @@ export const useEditorUiStore = create<UiState>((set, get) => ({
     }),
 
   setMediaTab: (mediaTab) => set({ mediaTab }),
+  setMediaSubTab: (mediaSubTab) => set({ mediaSubTab }),
   setInspectorTab: (inspectorTab) => set({ inspectorTab }),
 }));
