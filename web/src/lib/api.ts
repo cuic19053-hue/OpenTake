@@ -174,8 +174,12 @@ export async function getWaveform(mediaRef: string): Promise<number[] | null> {
   if (invokeImpl) {
     try {
       return await invokeImpl<number[]>("get_waveform", { mediaRef });
-    } catch {
-      return null; // no audio track / decode failure: caller renders nothing
+    } catch (e) {
+      // No audio track / decode failure: the caller renders nothing. Surface
+      // the reason — a silent swallow here is what masked the waveform decode
+      // backend failing for whole categories of source files.
+      console.warn(`get_waveform failed for ${mediaRef}:`, e);
+      return null;
     }
   }
   return null;

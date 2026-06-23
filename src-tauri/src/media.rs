@@ -350,10 +350,15 @@ pub fn get_waveform(
             None => return Err("project not saved; cannot resolve media path".into()),
         },
     };
-    media
-        .engine()
-        .waveform(&path, entry.duration)
-        .map_err(|e| e.to_string())
+    media.engine().waveform(&path, entry.duration).map_err(|e| {
+        // Log server-side too (the frontend swallows the error into "no
+        // waveform"); without this a decode failure is invisible.
+        eprintln!(
+            "get_waveform failed: media_ref={media_ref} path={} error={e}",
+            path.display()
+        );
+        e.to_string()
+    })
 }
 
 /// Collect importable media files under `root`. Top-level only unless
