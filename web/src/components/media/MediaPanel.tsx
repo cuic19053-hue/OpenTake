@@ -14,6 +14,7 @@ import {
   Filter,
   ArrowUpDown,
   LayoutGrid,
+  Folder,
   FolderOpen,
   FileVideo,
   FileAudio,
