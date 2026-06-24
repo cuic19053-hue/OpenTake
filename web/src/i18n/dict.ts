@@ -167,6 +167,7 @@ const zh: Dict = {
   "contextMenu.swapMedia": "替换媒体",
   "contextMenu.saveAsMedia": "另存为媒体",
   "contextMenu.extractAudio": "提取音频",
+  "swapMedia.noCandidates": "没有同类型素材可替换",
 
   // Preview
   "preview.fit": "适应",
@@ -404,6 +405,7 @@ const en: Dict = {
   "contextMenu.swapMedia": "Swap Media",
   "contextMenu.saveAsMedia": "Save as Media",
   "contextMenu.extractAudio": "Extract Audio",
+  "swapMedia.noCandidates": "No compatible media to swap",
 
   "preview.fit": "Fit",
   "preview.timelineTab": "Timeline",
