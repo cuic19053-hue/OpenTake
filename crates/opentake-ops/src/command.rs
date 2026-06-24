@@ -297,10 +297,7 @@ pub enum EditCommand {
     /// * **No trim/duration rewrites**: trim / speed / start / duration are
     ///   kept verbatim. The render layer is responsible for any overshoot
     ///   sampling when the new media is shorter.
-    SwapMedia {
-        clip_id: String,
-        media_ref: String,
-    },
+    SwapMedia { clip_id: String, media_ref: String },
     /// Undo the last committed command.
     Undo,
     /// Redo the last undone command.
@@ -420,10 +417,7 @@ pub fn apply(
         EditCommand::RenameFolder { entries } => rename_folder(state, entries),
         EditCommand::DeleteMedia { asset_ids } => delete_media(state, asset_ids),
         EditCommand::DeleteFolder { folder_ids } => delete_folder(state, folder_ids),
-        EditCommand::SwapMedia {
-            clip_id,
-            media_ref,
-        } => swap_media(state, clip_id, media_ref),
+        EditCommand::SwapMedia { clip_id, media_ref } => swap_media(state, clip_id, media_ref),
     }
 }
 
@@ -1805,8 +1799,8 @@ fn swap_media(
     // 3. Strict type-match: clip.media_type == asset.kind. No isVisual leniency,
     //    no media_type override. A video clip can only swap to a video asset,
     //    an audio clip only to an audio asset.
-    let seed_media_type = state.timeline.tracks[seed_loc.track_index].clips[seed_loc.clip_index]
-        .media_type;
+    let seed_media_type =
+        state.timeline.tracks[seed_loc.track_index].clips[seed_loc.clip_index].media_type;
     if seed_media_type != new_asset.kind {
         return Err(EditError::Refused(format!(
             "Type mismatch: clip is {:?}, asset is {:?}",
