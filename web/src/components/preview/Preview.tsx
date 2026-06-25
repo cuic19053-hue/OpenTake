@@ -25,6 +25,7 @@ import { formatTimecode, totalFrames } from "../../lib/geometry";
 import { assetUrl } from "../../lib/asset";
 import { useTimelineFrame } from "./useTimelineFrame";
 import { TimelinePlayback } from "./TimelinePlaybackLayer";
+import { getPreviewEndpoint } from "../../lib/api";
 import { useT } from "../../i18n";
 import type { MediaItem } from "../../lib/types";
 
@@ -59,6 +60,13 @@ export function Preview() {
   const [mediaTime, setMediaTime] = useState(0);
   const [mediaDuration, setMediaDuration] = useState(0);
   const [mediaPlaying, setMediaPlaying] = useState(false);
+
+  // MJPEG preview stream endpoint (#64). Fetched once on mount; null outside
+  // Tauri or before the server responds.
+  const [previewEndpoint, setPreviewEndpoint] = useState<string | null>(null);
+  useEffect(() => {
+    getPreviewEndpoint().then(setPreviewEndpoint);
+  }, []);
   useEffect(() => {
     setMediaTime(0);
     setMediaDuration(0);
@@ -171,6 +179,22 @@ export function Preview() {
             onTime={setMediaTime}
             onDuration={setMediaDuration}
             onPlayingChange={setMediaPlaying}
+          />
+        ) : isPlaying && previewEndpoint ? (
+          // MJPEG stream from the loopback preview server (#64). The <img>
+          // continuously receives JPEG frames pushed by the Rust compositor.
+          <img
+            src={previewEndpoint}
+            alt=""
+            draggable={false}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              display: "block",
+            }}
           />
         ) : isPlaying ? null : timelineFrameUrl ? (
           // Rust GPU composite of the timeline at the current playhead (#47).

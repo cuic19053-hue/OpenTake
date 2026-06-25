@@ -190,6 +190,18 @@ export async function compositeFrame(
   return null;
 }
 
+// MARK: - MJPEG preview stream (#64)
+//
+// `get_preview_endpoint` returns the loopback MJPEG stream URL the Preview
+// component can point an <img> at during timeline playback. Returns null
+// outside Tauri (no Rust core / no preview server).
+
+export async function getPreviewEndpoint(): Promise<string | null> {
+  await ensureTauri();
+  if (invokeImpl) return invokeImpl<string>("get_preview_endpoint");
+  return null;
+}
+
 /**
  * Normalized waveform buckets (`0 = loud, 1 = silence`) for a media asset,
  * computed/cached by the Rust media engine (`get_waveform`). The array spans the

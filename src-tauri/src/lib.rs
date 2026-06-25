@@ -14,6 +14,7 @@ pub mod export;
 mod library;
 mod mcp;
 mod media;
+mod playback;
 mod render;
 mod secret;
 
@@ -117,6 +118,11 @@ pub fn run() {
             app.manage(crate::library::LibraryState::new(library_store));
             // Lazily-acquired GPU context for timeline composite previews (#47).
             app.manage(render::RenderState::new());
+            // MJPEG preview stream server (#64). Binds a random loopback port;
+            // `get_preview_endpoint` returns the URL for the front-end <img>.
+            let preview_server = tauri::async_runtime::block_on(playback::PreviewServer::start())
+                .expect("MJPEG preview server start");
+            app.manage(preview_server);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -136,6 +142,7 @@ pub fn run() {
             media::relink_media,
             media::get_media,
             media::get_waveform,
+            playback::get_preview_endpoint,
             render::composite_frame,
             export::export_video,
             secret::secret_save,

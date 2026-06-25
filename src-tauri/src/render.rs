@@ -239,6 +239,23 @@ fn encode_png_data_url(frame: &DecodedFrame) -> Result<String, String> {
     Ok(format!("data:image/png;base64,{b64}"))
 }
 
+/// Encode an RGBA composite as JPEG bytes (quality 75) for the MJPEG stream.
+/// The preview render is already capped at `DEFAULT_PREVIEW_CAP` (1280 px
+/// longest side) so no additional downscale is needed.
+fn encode_jpeg(frame: &DecodedFrame) -> Result<bytes::Bytes, String> {
+    use image::ImageEncoder;
+    let mut buf: Vec<u8> = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 75)
+        .write_image(
+            &frame.rgba,
+            frame.width,
+            frame.height,
+            image::ExtendedColorType::Rgba8,
+        )
+        .map_err(|e| format!("jpeg encode: {e}"))?;
+    Ok(bytes::Bytes::from(buf))
+}
+
 /// `composite_frame`: render the timeline at `frame` to a PNG data URL.
 ///
 /// `max_size` caps the longest side (px); omit it for the default preview cap.
@@ -248,6 +265,7 @@ fn encode_png_data_url(frame: &DecodedFrame) -> Result<String, String> {
 pub fn composite_frame(
     core: State<'_, AppCore>,
     render: State<'_, RenderState>,
+    preview: State<'_, std::sync::Arc<crate::playback::PreviewServer>>,
     frame: i32,
     max_size: Option<u32>,
 ) -> Result<CompositeFrameDto, String> {
@@ -357,6 +375,15 @@ pub fn composite_frame(
         .map_err(|e| format!("composite render failed: {e}"))?;
 
     let data_url = encode_png_data_url(&composite)?;
+
+    // Push JPEG frame to MJPEG stream if there are active subscribers (#64).
+    let sender = preview.sender();
+    if sender.receiver_count() > 0 {
+        if let Ok(jpeg_bytes) = encode_jpeg(&composite) {
+            let _ = sender.send(jpeg_bytes); // drop if channel full
+        }
+    }
+
     Ok(CompositeFrameDto {
         width: composite.width,
         height: composite.height,
