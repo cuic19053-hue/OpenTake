@@ -29,6 +29,8 @@ export function hitTestClip(
 ): ClipHit | null {
   for (let ti = 0; ti < timeline.tracks.length; ti++) {
     const track = timeline.tracks[ti];
+    // 隐藏轨道不参与命中测试（上游一致：hidden track 的片段不可被点选/拖拽）
+    if (track.hidden) continue;
     for (let ci = 0; ci < track.clips.length; ci++) {
       const clip = track.clips[ci];
       const rect = clipRect(timeline, ti, clip, pixelsPerFrame, trackHeights);
@@ -83,6 +85,8 @@ export function clipsInRect(
   const maxY = Math.max(y0, y1);
   const out = new Set<string>();
   for (let ti = 0; ti < timeline.tracks.length; ti++) {
+    // 隐藏轨道不参与框选（与 hitTestClip 一致）
+    if (timeline.tracks[ti].hidden) continue;
     for (const clip of timeline.tracks[ti].clips) {
       const rect = clipRect(timeline, ti, clip, pixelsPerFrame, trackHeights);
       const intersects =
