@@ -29,6 +29,10 @@ export function hitTestClip(
 ): ClipHit | null {
   for (let ti = 0; ti < timeline.tracks.length; ti++) {
     const track = timeline.tracks[ti];
+    // Hidden tracks are not interactable (issue #146): clips on them must
+    // not be draggable, selectable, or trimmable. Matches upstream behaviour
+    // where `track.isHidden` short-circuits hit-testing.
+    if (track.hidden) continue;
     for (let ci = 0; ci < track.clips.length; ci++) {
       const clip = track.clips[ci];
       const rect = clipRect(timeline, ti, clip, pixelsPerFrame, trackHeights);
@@ -83,6 +87,8 @@ export function clipsInRect(
   const maxY = Math.max(y0, y1);
   const out = new Set<string>();
   for (let ti = 0; ti < timeline.tracks.length; ti++) {
+    // Hidden tracks are not part of marquee selection (issue #146).
+    if (timeline.tracks[ti].hidden) continue;
     for (const clip of timeline.tracks[ti].clips) {
       const rect = clipRect(timeline, ti, clip, pixelsPerFrame, trackHeights);
       const intersects =
